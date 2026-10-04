@@ -31,6 +31,9 @@ test('the extension exposes only a toolbar popup and registers no page scripts',
   assert.equal(manifest.content_scripts, undefined);
   assert.ok(manifest.permissions.includes('activeTab'));
   assert.ok(manifest.permissions.includes('scripting'));
+  assert.equal(manifest.default_locale, 'en');
+  assert.equal(manifest.commands._execute_action.suggested_key.default, 'Ctrl+Shift+E');
+  assert.equal(manifest.commands._execute_action.suggested_key.mac, 'Command+Shift+E');
   assert.ok(fs.existsSync(path.join(project, manifest.action.default_popup)));
 
   const page = await context.newPage();
@@ -90,6 +93,7 @@ test('clicking a popup action collects exactly one conversation on demand', asyn
   }));
   assert.equal(before.globals, false);
 
+  await page.addScriptTag({ path: path.join(project, 'src/i18n.js') });
   await page.addScriptTag({ path: path.join(project, 'src/adapters.js') });
   await page.addScriptTag({ path: path.join(project, 'src/collector.js') });
   const result = await page.evaluate(async () => {

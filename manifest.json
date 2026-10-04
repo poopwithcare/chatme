@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Chat Export: Claude, ChatGPT & Grok",
-  "description": "Copy or download the current AI conversation and its visible web sources as Markdown.",
-  "version": "1.0.1",
+  "name": "__MSG_appName__",
+  "description": "__MSG_appDescription__",
+  "version": "1.0.2",
+  "default_locale": "en",
   "permissions": ["activeTab", "scripting", "clipboardWrite"],
   "action": {
     "default_title": "Chat Export",
@@ -17,5 +18,14 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "__MSG_shortcutDescription__"
+    }
   }
 }

@@ -4,6 +4,7 @@ const siteName = document.getElementById('site-name');
 const status = document.getElementById('status');
 const copyButton = document.getElementById('copy');
 const downloadButton = document.getElementById('download');
+const t = (globalThis.ChatExportI18n && globalThis.ChatExportI18n.t) || ((key) => key);
 
 let activeTab = null;
 let cachedExport = null;
@@ -28,6 +29,17 @@ function setStatus(message, state) {
   status.dataset.state = state || '';
 }
 
+function localizeDocument() {
+  for (const element of document.querySelectorAll('[data-i18n]')) {
+    const key = element.getAttribute('data-i18n');
+    if (key) element.textContent = t(key);
+  }
+  for (const element of document.querySelectorAll('[data-i18n-aria-label]')) {
+    const key = element.getAttribute('data-i18n-aria-label');
+    if (key) element.setAttribute('aria-label', t(key));
+  }
+}
+
 async function collectFromTab() {
   if (cachedExport) return cachedExport;
   if (!activeTab || !Number.isInteger(activeTab.id)) throw new Error('No active browser tab');
@@ -36,15 +48,16 @@ async function collectFromTab() {
   collectPromise = (async () => {
     await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
-      files: ['src/adapters.js', 'src/collector.js'],
+      files: ['src/i18n.js', 'src/adapters.js', 'src/collector.js'],
       world: 'ISOLATED'
     });
     const [execution] = await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
       world: 'ISOLATED',
       func: async () => {
+        const t = (globalThis.ChatExportI18n && globalThis.ChatExportI18n.t) || ((key) => key);
         const collector = globalThis.ChatExportCollector;
-        if (!collector) throw new Error('Could not start the conversation collector');
+        if (!collector) throw new Error(t('errorCollectorMissing'));
         try {
           return await collector.collect();
         } finally {
@@ -52,11 +65,12 @@ async function collectFromTab() {
           // one action. The next popup action injects a fresh collector.
           delete globalThis.ChatExportCollector;
           delete globalThis.ChatExportAdapters;
+          delete globalThis.ChatExportI18n;
         }
       }
     });
     if (!execution || !execution.result || !execution.result.markdown) {
-      throw new Error('No conversation Markdown was produced');
+      throw new Error(t('errorNoMarkdown'));
     }
     cachedExport = execution.result;
     return cachedExport;
@@ -72,12 +86,13 @@ async function collectFromTab() {
 async function runAction(action) {
   copyButton.disabled = true;
   downloadButton.disabled = true;
-  setStatus('Getting messages…');
+  setStatus(t('statusReading'));
   try {
     const result = await collectFromTab();
+    const count = result.messages.toLocaleString();
     if (action === 'copy') {
       await navigator.clipboard.writeText(result.markdown);
-      setStatus(`Copied ${result.messages.toLocaleString()} messages.`, 'success');
+      setStatus(result.messages === 1 ? t('statusCopiedOne') : t('statusCopiedMany', [count]), 'success');
     } else {
       const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' });
       const objectUrl = URL.createObjectURL(blob);
@@ -89,11 +104,11 @@ async function runAction(action) {
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      setStatus(`Downloaded ${result.messages.toLocaleString()} messages.`, 'success');
+      setStatus(result.messages === 1 ? t('statusDownloadedOne') : t('statusDownloadedMany', [count]), 'success');
     }
     return true;
   } catch (error) {
-    setStatus(error && error.message ? error.message : 'Could not export this conversation.', 'error');
+    setStatus(error && error.message ? error.message : t('errorGeneric'), 'error');
     return false;
   } finally {
     copyButton.disabled = false;
@@ -118,26 +133,27 @@ async function initialize() {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     activeTab = tab || null;
     if (!activeTab || !activeTab.url) {
-      siteName.textContent = 'No active tab';
-      setStatus('Open a supported site.');
+      siteName.textContent = t('noActiveTab');
+      setStatus(t('statusNoTab'));
       return;
     }
     const hostname = new URL(activeTab.url).hostname;
     siteName.textContent = hostname;
-    document.title = `Save full chat on ${hostname}`;
+    document.title = t('titleOnSite', [hostname]);
     if (!supportedConversation(activeTab.url)) {
-      setStatus('Open a Claude, ChatGPT, or Grok conversation.');
+      setStatus(t('statusUnsupported'));
       return;
     }
     copyButton.disabled = false;
     downloadButton.disabled = false;
   } catch (_) {
-    setStatus('Could not access the active tab.', 'error');
+    setStatus(t('errorTabAccess'), 'error');
   }
 }
 
 copyButton.addEventListener('click', () => runAction('copy'));
 downloadButton.addEventListener('click', () => runAction('download'));
+localizeDocument();
 initialize();
 
 if (typeof module !== 'undefined' && module.exports) {

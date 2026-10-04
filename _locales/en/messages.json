@@ -1,0 +1,138 @@
+{
+  "appName": {
+    "message": "Chat Export: Claude, ChatGPT & Grok",
+    "description": "Extension name shown in the store and browser UI."
+  },
+  "appDescription": {
+    "message": "Copy or download the current AI conversation and its visible web sources as Markdown.",
+    "description": "Extension description."
+  },
+  "appTitle": {
+    "message": "Save full chat",
+    "description": "Popup window title before the tab hostname is known."
+  },
+  "titleOnSite": {
+    "message": "Save full chat on $1",
+    "description": "Popup window title once the tab hostname is known.",
+    "placeholders": {
+      "hostname": { "content": "$1", "example": "claude.ai" }
+    }
+  },
+  "siteNameDefault": {
+    "message": "Current tab",
+    "description": "Header text before the active tab is read."
+  },
+  "noActiveTab": {
+    "message": "No active tab",
+    "description": "Header text when there is no active tab."
+  },
+  "copyTitle": {
+    "message": "Copy chat",
+    "description": "Copy button label."
+  },
+  "copyHint": {
+    "message": "Copy Markdown to clipboard",
+    "description": "Copy button subtitle."
+  },
+  "downloadTitle": {
+    "message": "Download chat",
+    "description": "Download button label."
+  },
+  "downloadHint": {
+    "message": "Save a Markdown file",
+    "description": "Download button subtitle."
+  },
+  "actionsLabel": {
+    "message": "Export actions",
+    "description": "Accessibility label for the actions section."
+  },
+  "feedbackLink": {
+    "message": "Report an issue",
+    "description": "Footer link to the issue tracker."
+  },
+  "statusReading": {
+    "message": "Getting messages…",
+    "description": "Status while the conversation is being collected."
+  },
+  "statusCopiedOne": {
+    "message": "Copied 1 message.",
+    "description": "Status after copying a single message."
+  },
+  "statusCopiedMany": {
+    "message": "Copied $1 messages.",
+    "description": "Status after copying several messages.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "42" }
+    }
+  },
+  "statusDownloadedOne": {
+    "message": "Downloaded 1 message.",
+    "description": "Status after downloading a single message."
+  },
+  "statusDownloadedMany": {
+    "message": "Downloaded $1 messages.",
+    "description": "Status after downloading several messages.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "42" }
+    }
+  },
+  "statusNoTab": {
+    "message": "Open a supported site.",
+    "description": "Status when there is no active tab."
+  },
+  "statusUnsupported": {
+    "message": "Open a Claude, ChatGPT, or Grok conversation.",
+    "description": "Status on an unsupported page."
+  },
+  "errorTabAccess": {
+    "message": "Could not access the active tab.",
+    "description": "Status when the active tab cannot be read."
+  },
+  "errorGeneric": {
+    "message": "Could not export this conversation.",
+    "description": "Fallback status when an error has no message."
+  },
+  "errorCollectorMissing": {
+    "message": "Could not start the conversation collector",
+    "description": "Collection error: injection failed."
+  },
+  "errorNoMarkdown": {
+    "message": "No conversation Markdown was produced",
+    "description": "Collection error: empty result."
+  },
+  "errorPageUnavailable": {
+    "message": "Conversation page is unavailable",
+    "description": "Collection error: no page to read."
+  },
+  "errorOpenConversation": {
+    "message": "Open a Claude, ChatGPT, or Grok conversation first",
+    "description": "Collection error: unsupported page."
+  },
+  "errorNoMessages": {
+    "message": "No conversation messages were available to export",
+    "description": "Collection error: nothing found."
+  },
+  "errorGrokEmpty": {
+    "message": "Grok returned no conversation turns",
+    "description": "Collection error: the Grok turn list was empty."
+  },
+  "errorRequestFailed": {
+    "message": "Conversation request failed ($1)",
+    "description": "Collection error: the site request failed.",
+    "placeholders": {
+      "detail": { "content": "$1", "example": "401" }
+    }
+  },
+  "errorNoResponse": {
+    "message": "no response",
+    "description": "Request failure detail when nothing was returned."
+  },
+  "errorTimedOut": {
+    "message": "Conversation request timed out",
+    "description": "Collection error: the site request stalled."
+  },
+  "shortcutDescription": {
+    "message": "Open Chat Export",
+    "description": "Keyboard shortcut description shown in browser settings."
+  }
+}

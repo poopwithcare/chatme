@@ -23,8 +23,10 @@ const FILES = [
   'icons/icon32.png',
   'icons/icon48.png',
   'icons/icon128.png',
+  'src/i18n.js',
   'src/adapters.js',
-  'src/collector.js'
+  'src/collector.js',
+  '_locales/en/messages.json'
 ];
 
 function fail(message) {

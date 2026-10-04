@@ -101,7 +101,7 @@ async function checkTarget(browser, target) {
     // CDP evaluation (like chrome.scripting.executeScript files) is exempt
     // from the page's Content-Security-Policy; addScriptTag is not, and
     // ChatGPT's script-src-elem blocks it.
-    for (const file of ['src/adapters.js', 'src/collector.js']) {
+    for (const file of ['src/i18n.js', 'src/adapters.js', 'src/collector.js']) {
       await page.evaluate((source) => { (0, eval)(source); }, fs.readFileSync(path.join(ROOT, file), 'utf8'));
     }
     const collected = await page.evaluate(async () => {

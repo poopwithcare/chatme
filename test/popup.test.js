@@ -23,6 +23,7 @@ function popupHarness(tab) {
   const document = {
     body: { appendChild(node) { node.appended = true; } },
     getElementById(id) { return elements.get(id) || element(id); },
+    querySelectorAll() { return []; },
     createElement(name) {
       const node = element();
       node.tagName = name;
@@ -31,6 +32,7 @@ function popupHarness(tab) {
       return node;
     }
   };
+  const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '_locales', 'en', 'messages.json'), 'utf8'));
   const chrome = {
     tabs: { async query(query) { events.push(['tabs.query', query]); return tab ? [tab] : []; } },
     scripting: {
@@ -38,6 +40,17 @@ function popupHarness(tab) {
         events.push(['executeScript', details]);
         if (details.files) return [];
         return [{ result: { platform: 'grok', platformName: 'Grok', title: 'Test Chat', messages: 2, bytes: 44, markdown: '# Conversation\n' } }];
+      }
+    },
+    i18n: {
+      getMessage(key, substitutions) {
+        const entry = catalog[key];
+        if (!entry) return '';
+        let out = entry.message;
+        for (const [index, value] of (substitutions || []).entries()) {
+          out = out.split(`$${index + 1}`).join(String(value));
+        }
+        return out;
       }
     }
   };
@@ -49,6 +62,7 @@ function popupHarness(tab) {
     window: { setTimeout(callback) { callback(); return 1; } },
     console
   };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'i18n.js'), 'utf8'), context);
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8'), context);
   return { document, elements, events, createdAnchors, copied: () => copied, wait: () => new Promise((resolve) => setImmediate(resolve)) };
 }
@@ -111,4 +125,32 @@ test('the popup title names the tab it exports from', async () => {
   const h = popupHarness({ id: 5, url: 'https://claude.ai/chat/chat-id' });
   await h.wait();
   assert.equal(h.document.title, 'Save full chat on claude.ai');
+});
+
+test('singular and plural counts read correctly without browser i18n', () => {
+  const i18n = require('../src/i18n.js');
+  assert.equal(i18n.t('statusCopiedOne'), 'Copied 1 message.');
+  assert.equal(i18n.t('statusCopiedMany', [7]), 'Copied 7 messages.');
+  assert.equal(i18n.t('titleOnSite', ['example.com']), 'Save full chat on example.com');
+});
+
+test('every localized string exists in the English catalog and fallback', () => {
+  // A missing key renders as the raw key or empty text, so pin the full set:
+  // every t('…') call, data-i18n attribute, and manifest __MSG__ reference.
+  const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '_locales', 'en', 'messages.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const html = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf8');
+  const used = new Set();
+  for (const file of ['popup.js', 'src/collector.js', 'src/i18n.js']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    for (const match of source.matchAll(/(?:^|[^\w$])t\(['"]([^'"]+)['"]/g)) used.add(match[1]);
+  }
+  for (const match of html.matchAll(/data-i18n(?:-aria-label)?="([^"]+)"/g)) used.add(match[1]);
+  for (const match of JSON.stringify(manifest).matchAll(/__MSG_([A-Za-z0-9@_]+)__/g)) used.add(match[1]);
+  assert.ok(used.size > 10);
+  const i18n = require('../src/i18n.js');
+  for (const key of used) {
+    assert.ok(catalog[key], `missing locale key: ${key}`);
+    assert.equal(typeof i18n.FALLBACK[key], 'string', `missing fallback: ${key}`);
+  }
 });

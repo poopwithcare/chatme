@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+// i18n first: collector binds its translator at load time.
+require('../src/i18n.js');
 const adapters = require('../src/adapters.js');
 const collector = require('../src/collector.js');
 

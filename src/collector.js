@@ -1,6 +1,8 @@
 (function (root) {
   'use strict';
 
+  const t = (root.ChatExportI18n && root.ChatExportI18n.t) || ((key) => key);
+
   function endpoint(path, pageUrl) {
     return new URL(path, pageUrl).href;
   }
@@ -24,13 +26,13 @@
         ...(controller ? { signal: controller.signal } : {})
       });
     } catch (error) {
-      if (error && error.name === 'AbortError') throw new Error('Conversation request timed out');
+      if (error && error.name === 'AbortError') throw new Error(t('errorTimedOut'));
       throw error;
     } finally {
       if (timer) clearTimeout(timer);
     }
     if (!response || !response.ok) {
-      throw new Error(`Conversation request failed (${response ? response.status : 'no response'})`);
+      throw new Error(t('errorRequestFailed', [response ? response.status : t('errorNoResponse')]));
     }
     return response.json();
   }
@@ -67,7 +69,7 @@
     const list = Array.isArray(orgs) ? orgs
       : (orgs && Array.isArray(orgs.organizations) ? orgs.organizations : []);
     const org = list.map((entry) => entry && (entry.uuid || entry.id)).filter(Boolean)[0];
-    if (!org) throw new Error('Conversation request failed (no response)');
+    if (!org) throw new Error(t('errorRequestFailed', [t('errorNoResponse')]));
     return fetchJson(fetchImpl, pageUrl,
       `/api/organizations/${encodeURIComponent(org)}/chat_conversations/${encodeURIComponent(id)}`);
   }
@@ -87,12 +89,12 @@
     const doc = options.document || root.document;
     const pageUrl = options.pageUrl || (root.location && root.location.href);
     const fetchImpl = options.fetch || root.fetch.bind(root);
-    if (!adapters || !doc || !pageUrl) throw new Error('Conversation page is unavailable');
+    if (!adapters || !doc || !pageUrl) throw new Error(t('errorPageUnavailable'));
 
     const location = new URL(pageUrl);
     const platform = adapters.platformFromLocation(location);
     if (!platform || !adapters.conversationRoute(platform, location)) {
-      throw new Error('Open a Claude, ChatGPT, or Grok conversation first');
+      throw new Error(t('errorOpenConversation'));
     }
 
     let data = null;
@@ -138,7 +140,7 @@
         const turnList = await fetchJson(fetchImpl, pageUrl, `${base}/response-node`);
         const nodes = Array.isArray(turnList.responseNodes) ? turnList.responseNodes : [];
         const ids = nodes.map((node) => node && (node.responseId || node.id)).filter(Boolean).map(String);
-        if (!ids.length) throw new Error('Grok returned no conversation turns');
+        if (!ids.length) throw new Error(t('errorGrokEmpty'));
         const responses = [];
         for (let start = 0; start < ids.length; start += 100) {
           const batch = ids.slice(start, start + 100);
@@ -173,7 +175,7 @@
     const structured = data ? { platform, data, capturedAt: new Date().toISOString() } : null;
     const resolved = adapters.resolveExportData({ structured, doc, platform, pageUrl, domData });
     if (!resolved || !resolved.data || !resolved.data.messages.length) {
-      throw new Error('No conversation messages were available to export');
+      throw new Error(t('errorNoMessages'));
     }
     const markdown = adapters.toMarkdown(resolved.data);
     return {

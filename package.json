@@ -1,6 +1,6 @@
 {
   "name": "chat-export-extension",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Local-first Markdown exporter for Claude, ChatGPT, and Grok chats",
   "license": "MIT",

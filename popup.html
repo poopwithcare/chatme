@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Save full chat</title>
+  <title data-i18n="appTitle">Save full chat</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 
@@ -16,18 +16,18 @@
         <path d="M7 17 17 7" />
       </svg></span>
     <div class="site-info">
-      <div id="site-name" class="brand site-name">Current tab</div>
+      <div id="site-name" class="brand site-name" data-i18n="siteNameDefault">Current tab</div>
     </div>
   </header>
   <main>
-    <section class="actions" aria-label="Export actions">
+    <section class="actions" aria-label="Export actions" data-i18n-aria-label="actionsLabel">
       <button id="copy" class="action" type="button" disabled>
         <span class="action-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
           </svg></span>
-        <span><strong>Copy chat</strong><small>Copy Markdown to clipboard</small></span>
+        <span><strong data-i18n="copyTitle">Copy chat</strong><small data-i18n="copyHint">Copy Markdown to clipboard</small></span>
       </button>
       <button id="download" class="action" type="button" disabled>
         <span class="action-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
@@ -36,12 +36,13 @@
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <path d="m7 10 5 5 5-5" />
           </svg></span>
-        <span><strong>Download chat</strong><small>Save a Markdown file</small></span>
+        <span><strong data-i18n="downloadTitle">Download chat</strong><small data-i18n="downloadHint">Save a Markdown file</small></span>
       </button>
     </section>
     <p id="status" aria-live="polite"></p>
-    <footer>Grok &middot; Claude &middot; OpenAI<br><a id="feedback" href="https://github.com/poopwithcare/chatme/issues/new/choose" target="_blank" rel="noopener">Report an issue</a></footer>
+    <footer>Grok &middot; Claude &middot; OpenAI<br><a id="feedback" href="https://github.com/poopwithcare/chatme/issues/new/choose" target="_blank" rel="noopener" data-i18n="feedbackLink">Report an issue</a></footer>
   </main>
+  <script src="src/i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 
