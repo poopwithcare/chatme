@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <!-- Deeper green near the base, fading to pale at the rounded edge -->
+    <radialGradient id="violaGradient" cx="120" cy="225" r="215" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#a8d9b5"/>
+      <stop offset="45%" stop-color="#c3e8cc"/>
+      <stop offset="100%" stop-color="#e6f7ea"/>
+    </radialGradient>
+
+    <!-- Soft highlight across the upper lobe -->
+    <radialGradient id="violaSheen" cx="120" cy="60" r="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Petal shape: narrow base, broad rounded fan, gently scalloped top -->
+  <path id="violaPetal"
+        d="M120 226
+           C 102 202, 42 172, 26 112
+           C 14 66, 48 22, 92 20
+           C 106 19, 113 25, 120 25
+           C 127 25, 134 19, 148 20
+           C 192 22, 226 66, 214 112
+           C 198 172, 138 202, 120 226 Z"
+        fill="url(#violaGradient)"
+        stroke="#94cba3"
+        stroke-width="2"
+        stroke-linejoin="round"/>
+
+  <!-- Sheen -->
+  <path d="M120 226
+           C 102 202, 42 172, 26 112
+           C 14 66, 48 22, 92 20
+           C 106 19, 113 25, 120 25
+           C 127 25, 134 19, 148 20
+           C 192 22, 226 66, 214 112
+           C 198 172, 138 202, 120 226 Z"
+        fill="url(#violaSheen)"/>
+
+  <!-- Fine veins radiating from the base -->
+  <g fill="none" stroke="#8fc79f" stroke-linecap="round">
+    <g stroke-width="1.6" opacity="0.6">
+      <path d="M120 216 C 120 160, 120 100, 120 36"/>
+      <path d="M120 216 C 108 165, 88 112, 80 48"/>
+      <path d="M120 216 C 132 165, 152 112, 160 48"/>
+      <path d="M120 216 C 98 172, 62 132, 46 84"/>
+      <path d="M120 216 C 142 172, 178 132, 194 84"/>
+      <path d="M120 216 C 92 186, 48 160, 34 128"/>
+      <path d="M120 216 C 148 186, 192 160, 206 128"/>
+    </g>
+
+    <!-- Short, bolder "whisker" lines near the base (like a viola's nectar guides) -->
+    <g stroke="#7bb98d" stroke-width="2.2" opacity="0.85">
+      <path d="M120 220 C 120 205, 120 190, 120 172"/>
+      <path d="M120 220 C 112 205, 102 192, 92 178"/>
+      <path d="M120 220 C 128 205, 138 192, 148 178"/>
+      <path d="M120 220 C 106 210, 92 202, 78 192"/>
+      <path d="M120 220 C 134 210, 148 202, 162 192"/>
+    </g>
+  </g>
+</svg>

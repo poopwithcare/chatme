@@ -1,0 +1,166 @@
+:root {
+  color-scheme: dark;
+  font: 13px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #1b1c23;
+  color: #f2f2f5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 245px;
+  margin: 0;
+  background: #1b1c23;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #30323d;
+  border-bottom: 1px solid #41434d;
+}
+
+.brand-mark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 6px;
+  background: #8ba9f5;
+  color: #18203a;
+}
+
+.brand-mark svg {
+  width: 15px;
+  height: 15px;
+}
+
+.site-info {
+  min-width: 0;
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.site-name {
+  overflow: hidden;
+  color: #b9bbc5;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+main {
+  padding: 10px 12px 8px;
+}
+
+#status {
+  min-height: 15px;
+  margin: 0 0 8px;
+  color: #aeb0bb;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+#status[data-state="error"] {
+  color: #ffaaaa;
+}
+
+#status[data-state="success"] {
+  color: #a8e7c2;
+}
+
+.actions {
+  display: grid;
+  gap: 6px;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid #454752;
+  border-radius: 8px;
+  background: #272830;
+  color: #f4f4f7;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.action:hover:not(:disabled) {
+  background: #333540;
+}
+
+.action.primary {
+  border-color: #8ba9f5;
+  background: #333b55;
+}
+
+.action.primary:hover:not(:disabled) {
+  background: #404d70;
+}
+
+.action:focus-visible {
+  outline: 2px solid #a9c0ff;
+  outline-offset: 2px;
+}
+
+.action:disabled {
+  cursor: default;
+  opacity: .52;
+}
+
+.action-icon {
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: #9db6ff;
+}
+
+.action-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.action strong,
+.action small {
+  display: block;
+}
+
+.action strong {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.action small {
+  margin-top: 1px;
+  color: #b2b4bf;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+footer {
+  margin: 8px -12px -8px;
+  padding: 6px 12px;
+  border-top: 1px solid #353640;
+  color: #9b9da8;
+  font-size: 10px;
+  text-align: center;
+}
+
+footer a {
+  color: inherit;
+}

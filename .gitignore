@@ -1,0 +1,24 @@
+node_modules/
+.DS_Store
+playwright-report/
+test-results/
+coverage/
+
+# Local capture dumps and exported conversation samples. These can contain
+# request headers and session credentials, so they are never committed.
+*-network-requests.json
+/captures.db
+grok-*.md
+
+# Browser captures contain auth headers and session cookies.
+*.har
+chatgpt-*.md
+
+# Real captured conversation traffic, kept local.
+test/fixtures/grok-live-*.json
+
+# Playwright-owned browser profiles (sign-in state lives here)
+.profiles/
+
+# Release zips are reproducible build output, not source.
+dist/

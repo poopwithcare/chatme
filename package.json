@@ -1,0 +1,16 @@
+{
+  "name": "chat-export-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first Markdown exporter for Claude, ChatGPT, and Grok chats",
+  "scripts": {
+    "test": "node --test test/adapters.test.js test/collector.test.js test/popup.test.js",
+    "test:e2e": "node --test test/e2e.test.js",
+    "test:live": "node scripts/live-e2e.js",
+    "assets": "node scripts/build-store-assets.js",
+    "release": "node scripts/release.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
