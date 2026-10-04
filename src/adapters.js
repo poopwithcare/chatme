@@ -67,28 +67,48 @@
     return false;
   }
 
+  // Stable hooks owned by the product markup. Test IDs belong to the site's
+  // own test suite and churn without notice, so they are only a fallback
+  // when nothing stable matches (see getFallbackSelector).
   function getCandidateSelector(platform) {
-    const shared = [
+    const base = [
       '[data-message-author-role]',
       '[data-message-id][data-role]',
+      '[data-message-id]'
+    ];
+    if (platform === 'chatgpt') {
+      return [
+        '[data-message-author-role]',
+        'article[data-message-author-role]',
+        '[data-message-id]',
+        '[data-user-message-bubble]',
+        '[data-markdown-copy]'
+      ].join(',');
+    }
+    return base.join(',');
+  }
+
+  function getFallbackSelector(platform) {
+    const testids = [
       '[data-testid="user-message"]',
       '[data-testid="assistant-message"]',
       '[data-testid^="user-message-"]',
       '[data-testid^="assistant-message-"]'
     ];
-    if (platform === 'chatgpt') return ['[data-message-author-role]', 'article[data-message-author-role]', '[data-message-id]', '[data-testid*="conversation-turn"]', '[data-user-message-bubble]', '[data-markdown-copy]', ...shared.slice(1)].join(',');
-    if (platform === 'claude') return [
-      ...shared,
-      '[data-testid*="human-turn"]',
-      '[data-testid*="assistant-turn"]',
-      '[data-testid*="chat-message"]'
-    ].join(',');
+    if (platform === 'chatgpt') return ['[data-testid*="conversation-turn"]', ...testids].join(',');
+    if (platform === 'claude') {
+      return [
+        ...testids,
+        '[data-testid*="human-turn"]',
+        '[data-testid*="assistant-turn"]',
+        '[data-testid*="chat-message"]'
+      ].join(',');
+    }
     return [
-      ...shared,
+      ...testids,
       '[data-testid="message"]',
       '[data-testid^="message-"]',
-      '[data-testid^="conversation-turn-"]',
-      '[data-message-id]'
+      '[data-testid^="conversation-turn-"]'
     ].join(',');
   }
 
@@ -687,9 +707,20 @@
   }
 
   function extractConversation(doc, platform, pageUrl) {
-    const selector = getCandidateSelector(platform);
-    const nodes = dedupeCandidates(Array.from(doc.querySelectorAll(selector)));
-    const messages = [];
+    let nodes = [];
+    try {
+      nodes = Array.from(doc.querySelectorAll(getCandidateSelector(platform)));
+    } catch (_) {
+      nodes = [];
+    }
+    if (!nodes.length) {
+      try {
+        nodes = Array.from(doc.querySelectorAll(getFallbackSelector(platform)));
+      } catch (_) {
+        nodes = [];
+      }
+    }
+    nodes = dedupeCandidates(nodes);    const messages = [];
     const seenStableIds = new Set();
     for (const node of nodes) {
       if (isExcludedMessageCandidate(node)) continue;
@@ -1356,7 +1387,11 @@
     if (currentNode && mapping[currentNode]) {
       let node = currentNode;
       const chain = [];
-      while (node && mapping[node]) {
+      // A malformed mapping can link parents in a cycle; without a visited
+      // set the walk below never terminates and the popup hangs silently.
+      const seen = new Set();
+      while (node && mapping[node] && !seen.has(node)) {
+        seen.add(node);
         chain.unshift(node);
         const entry = mapping[node];
         const parentId = entry && entry.parent;
@@ -1699,7 +1734,7 @@
     return null;
   }
 
-  const api = { platformFromLocation, conversationRoute, conversationKeyFor, conversationIdFromPageUrl, conversationIdInPayload, extractConversation, toMarkdown, getCandidateSelector, normalizeClaudeResponse, normalizeChatGPTResponse, chatGPTSearchQueries, chatGPTRenderCitations, normalizeGrokResponse, normalizeGrokShareResponse, grokTurnFromResponse, nextConversationPageCursor, distinctTurnCount, comparisonText, reviveDevalue, decodeScriptStringLiteral, extractChatGPTShareConversation, normalizeStructuredResponse, platformForPayload, resolveExportData, mergeStructuredMessages, mergeStructuredResponses, mergeSearches, mergeExportMessages, mergeExportData, exportMessageKey, shouldContinueScrollWalk, createScrollCollector, findConversationScroller };
+  const api = { platformFromLocation, conversationRoute, conversationKeyFor, conversationIdFromPageUrl, conversationIdInPayload, extractConversation, toMarkdown, getCandidateSelector, normalizeClaudeResponse, normalizeChatGPTResponse, chatGPTSearchQueries, chatGPTRenderCitations, normalizeGrokResponse, normalizeGrokShareResponse, grokTurnFromResponse, nextConversationPageCursor, distinctTurnCount, comparisonText, reviveDevalue, decodeScriptStringLiteral, extractChatGPTShareConversation, normalizeStructuredResponse, platformForPayload, resolveExportData, mergeStructuredMessages, mergeStructuredResponses, mergeSearches, mergeExportMessages, mergeExportData, exportMessageKey, shouldContinueScrollWalk, createScrollCollector, findConversationScroller, getFallbackSelector };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ChatExportAdapters = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

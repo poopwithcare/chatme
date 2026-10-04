@@ -216,6 +216,21 @@ test('ChatGPT normalizer uses current_node chain and preserves search metadata',
   assert.equal(result.messages[2].text, 'Follow-up');
 });
 
+test('ChatGPT normalizer terminates on a cyclic parent chain instead of hanging', () => {
+  const response = {
+    title: 'Cycle test',
+    current_node: 'msg-2',
+    mapping: {
+      'msg-1': { message: { author: { role: 'user' }, content: { parts: ['Cyclic question'] }, create_time: 1 }, parent: 'msg-2' },
+      'msg-2': { message: { author: { role: 'assistant' }, content: { parts: ['Cyclic answer'] }, create_time: 2 }, parent: 'msg-1' }
+    }
+  };
+  const result = adapters.normalizeChatGPTResponse(response, 'https://chatgpt.com/c/123');
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages[0].text, 'Cyclic question');
+  assert.equal(result.messages[1].text, 'Cyclic answer');
+});
+
 test('ChatGPT normalizer preserves non-string parts and search_queries', () => {
   const response = {
     mapping: {
@@ -465,10 +480,43 @@ test('resolveExportData restores a leading DOM user turn missing from structured
   assert.match(adapters.toMarkdown(resolved.data), /## User \(1\)/);
 });
 
-test('ChatGPT selector covers conversation-turn containers so available DOM reaches ready', () => {
+test('ChatGPT selectors keep stable hooks primary and testids as fallback', () => {
   const selector = adapters.getCandidateSelector('chatgpt');
   assert.match(selector, /data-message-author-role/);
-  assert.match(selector, /conversation-turn/);
+  assert.doesNotMatch(selector, /data-testid/);
+  assert.match(adapters.getFallbackSelector('chatgpt'), /conversation-turn/);
+});
+
+test('testid-only pages still export via the fallback selector', () => {
+  const userDiv = makeNode('div', { 'data-testid': 'user-message' }, 'Fallback question');
+  const assistantDiv = makeNode('div', { 'data-testid': 'assistant-message' }, 'Fallback answer');
+  const doc = {
+    querySelectorAll(sel) {
+      if (sel.includes('data-message-author-role')) return [];
+      return [userDiv, assistantDiv];
+    },
+    querySelector() { return null; }
+  };
+  const result = adapters.extractConversation(doc, 'chatgpt', 'https://chatgpt.com/c/test');
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages[0].text, 'Fallback question');
+  assert.equal(result.messages[1].text, 'Fallback answer');
+});
+
+test('stable matches keep testid-only noise out of the export', () => {
+  const userDiv = makeNode('div', { 'data-message-author-role': 'user' }, 'Stable question');
+  const noise = makeNode('div', { 'data-testid': 'user-message' }, 'Testid noise');
+  const assistantDiv = makeNode('div', { 'data-message-author-role': 'assistant' }, 'Stable answer');
+  const doc = {
+    querySelectorAll(sel) {
+      if (sel.includes('data-message-author-role')) return [userDiv, assistantDiv];
+      return [noise];
+    },
+    querySelector() { return null; }
+  };
+  const result = adapters.extractConversation(doc, 'chatgpt', 'https://chatgpt.com/c/test');
+  assert.equal(result.messages.length, 2);
+  assert.doesNotMatch(adapters.toMarkdown(result), /Testid noise/);
 });
 
 test('ChatGPT normalizer extracts nested text objects instead of dropping available turns', () => {

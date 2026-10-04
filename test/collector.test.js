@@ -152,6 +152,41 @@ test('an API error does not silently export a partial empty conversation', async
   }), /Conversation request failed \(401\)/);
 });
 
+test('a stalled conversation request fails fast instead of hanging the popup', async () => {
+  await assert.rejects(collector.fetchJson((url, init) => new Promise((_, reject) => {
+    init.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    });
+  }), 'https://chatgpt.com/c/123', '/backend-api/conversations/123', { timeoutMs: 5 }), /Conversation request timed out/);
+});
+
+test('fetchJson keeps credentials, merged headers, and hides its timeout option', async () => {
+  const requests = [];
+  const data = await collector.fetchJson(async (url, init) => {
+    requests.push({ url, init });
+    return jsonResponse({ ok: true });
+  }, 'https://grok.com/c/1', '/rest/app-chat/conversations/1/response-node', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    timeoutMs: 50
+  });
+
+  assert.deepEqual(data, { ok: true });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].init.credentials, 'include');
+  assert.equal(requests[0].init.headers.accept, 'application/json');
+  assert.equal(requests[0].init.headers['content-type'], 'application/json');
+  assert.ok(requests[0].init.signal);
+  assert.ok(!('timeoutMs' in requests[0].init));
+});
+
+test('a non-timeout fetch failure passes through unchanged', async () => {
+  await assert.rejects(collector.fetchJson(async () => { throw new TypeError('boom'); },
+    'https://chatgpt.com/c/123', '/api/auth/session', { timeoutMs: 50 }), /boom/);
+});
+
 function claudeMessageNode(role, text) {
   return {
     getAttribute(name) { return name === 'data-message-author-role' ? role : ''; },

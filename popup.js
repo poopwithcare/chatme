@@ -72,7 +72,7 @@ async function collectFromTab() {
 async function runAction(action) {
   copyButton.disabled = true;
   downloadButton.disabled = true;
-  setStatus('Reading this conversation…');
+  setStatus('Getting messages…');
   try {
     const result = await collectFromTab();
     if (action === 'copy') {
@@ -119,7 +119,7 @@ async function initialize() {
     activeTab = tab || null;
     if (!activeTab || !activeTab.url) {
       siteName.textContent = 'No active tab';
-      setStatus('Open a supported conversation to export it.');
+      setStatus('Open a supported site.');
       return;
     }
     const hostname = new URL(activeTab.url).hostname;

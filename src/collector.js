@@ -5,12 +5,30 @@
     return new URL(path, pageUrl).href;
   }
 
+  // A stalled request must fail fast with a readable error instead of hanging
+  // the popup indefinitely. Callers never pass their own signal, so the
+  // timeout owns it; init.timeoutMs exists only so tests can use a short fuse.
+  const FETCH_TIMEOUT_MS = 30000;
+
   async function fetchJson(fetchImpl, pageUrl, path, init) {
-    const response = await fetchImpl(endpoint(path, pageUrl), {
-      credentials: 'include',
-      headers: { accept: 'application/json', ...(init && init.headers) },
-      ...(init || {})
-    });
+    const { timeoutMs, headers: extraHeaders, ...restInit } = init || {};
+    const timeout = typeof timeoutMs === 'number' ? timeoutMs : FETCH_TIMEOUT_MS;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+    let response;
+    try {
+      response = await fetchImpl(endpoint(path, pageUrl), {
+        credentials: 'include',
+        ...restInit,
+        headers: { accept: 'application/json', ...(extraHeaders || {}) },
+        ...(controller ? { signal: controller.signal } : {})
+      });
+    } catch (error) {
+      if (error && error.name === 'AbortError') throw new Error('Conversation request timed out');
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (!response || !response.ok) {
       throw new Error(`Conversation request failed (${response ? response.status : 'no response'})`);
     }
