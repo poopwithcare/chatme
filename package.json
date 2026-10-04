@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Local-first Markdown exporter for Claude, ChatGPT, and Grok chats",
+  "license": "MIT",
   "scripts": {
     "test": "node --test test/adapters.test.js test/collector.test.js test/popup.test.js",
     "test:e2e": "node --test test/e2e.test.js",
