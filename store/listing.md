@@ -30,10 +30,9 @@ Export the current AI chat conversation as Markdown.
 
 ## Permission justifications (privacy tab)
 
-- `activeTab`: read the conversation tab you clicked the button on.
+- `activeTab`: the only access the extension has. Clicking the button grants one-time access to that tab, which covers injecting the on-demand collector and reading the conversation there. There are deliberately no `host_permissions`: nothing is readable until you click, and access lapses on its own.
 - `scripting`: inject the on-demand collector into that tab only.
 - `clipboardWrite`: Copy chat writes the Markdown to your clipboard.
-- Host permissions (`claude.ai`, `chatgpt.com`, `chat.openai.com`, `grok.com`, `x.com/i/grok*`): fetch the current conversation from the site you are exporting from, only when you click. No other network requests exist.
 
 ## Data usage (privacy tab)
 

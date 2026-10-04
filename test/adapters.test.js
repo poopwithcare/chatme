@@ -438,6 +438,47 @@ test('Claude sender field labels the opening human message as User', () => {
   assert.match(markdown, /## Claude \(2\)/);
 });
 
+test('Claude image-only turn exports its file instead of vanishing', () => {
+  const response = {
+    name: 'Image chat',
+    chat_messages: [
+      { sender: 'human', text: '', files: [{ file_kind: 'image', file_name: 'photo.png', file_uuid: 'f-1', preview_url: '/api/organizations/o-1/files/f-1/contents' }] },
+      { sender: 'assistant', text: 'Nice photo.', files: [] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 2);
+  assert.equal(result.messages[0].role, 'user');
+  assert.match(result.messages[0].text, /!\[photo\.png\]\(https:\/\/claude\.ai\/api\/organizations\/o-1\/files\/f-1\/contents\)/);
+  assert.equal(result.messages[0].links[0].url, 'https://claude.ai/api/organizations/o-1/files/f-1/contents');
+  assert.match(adapters.toMarkdown(result), /!\[photo\.png\]/);
+});
+
+test('Claude document upload exports as a named file reference', () => {
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: 'See attached', files: [{ file_kind: 'document', file_name: 'notes.pdf', preview_url: 'https://claude.ai/api/files/f-2' }] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /See attached/);
+  assert.match(result.messages[0].text, /> File: \[notes\.pdf\]\(https:\/\/claude\.ai\/api\/files\/f-2\)/);
+  assert.equal(result.messages[0].links[0].url, 'https://claude.ai/api/files/f-2');
+});
+
+test('Claude file without a preview URL still keeps its turn', () => {
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: '', files: [{ file_kind: 'image', file_name: 'photo.png' }] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /\[image: photo\.png\]/);
+  assert.equal(result.messages[0].links.length, 0);
+});
+
 test('resolveExportData restores a leading DOM user turn missing from structured data', () => {
   const userDiv = makeNode('div', { 'data-message-author-role': 'user' }, 'Opening user prompt');
   const assistantDiv = makeNode('div', { 'data-message-author-role': 'assistant' }, 'Assistant reply quoting the prompt');

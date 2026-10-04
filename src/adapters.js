@@ -587,8 +587,36 @@
           textParts.push(`[${part.type}]`);
         }
       }
+      // The API carries the turn text in `text` when there is no `content`
+      // array; prefer it before file lines so a captioned upload keeps both.
+      if (!textParts.length && msg && typeof msg.text === 'string' && msg.text.trim()) {
+        textParts.push(msg.text.trim());
+      }
+      // Uploaded files ride alongside the turn in `files`, not in `content`:
+      // an image-only turn has no text at all, so without this it is dropped.
+      // Images export as Markdown with the page's own preview URL; anything
+      // else becomes a named file reference carrying the same link.
+      for (const file of Array.isArray(msg.files) ? msg.files : []) {
+        if (!file || typeof file !== 'object') continue;
+        const name = typeof file.file_name === 'string' && file.file_name ? file.file_name : 'file';
+        let url = typeof file.preview_url === 'string' && file.preview_url ? file.preview_url
+          : typeof file.thumbnail_url === 'string' && file.thumbnail_url ? file.thumbnail_url : '';
+        if (url.startsWith('/')) {
+          try { url = new URL(url, pageUrl).href; } catch (_) {}
+        }
+        const kind = typeof file.file_kind === 'string' ? file.file_kind.toLowerCase() : '';
+        const looksImage = kind === 'image' || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(name);
+        if (url && looksImage) {
+          textParts.push(`![${name}](${url})`);
+          links.push({ title: name, url });
+        } else if (url) {
+          textParts.push(`> File: [${name}](${url})`);
+          links.push({ title: name, url });
+        } else {
+          textParts.push(looksImage ? `[image: ${name}]` : `[file: ${name}]`);
+        }
+      }
       let text = textParts.join('\n\n').trim();
-      if (!text && msg && typeof msg.text === 'string' && msg.text.trim()) text = msg.text.trim();
       if (!text && !links.length) continue;
       messages.push({ role, text, links });
       if (role === 'assistant' && links.length) {

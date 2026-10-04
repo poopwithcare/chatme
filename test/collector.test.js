@@ -143,6 +143,29 @@ test('Claude chat ids ignore share links', () => {
   assert.equal(collector.claudeChatId('https://claude.ai/share/public-token'), null);
 });
 
+test('Claude image-only turn survives the full private export', async () => {
+  const result = await collector.collect({
+    adapters,
+    document: claudeDocument({ title: 'Claude Chat' }),
+    pageUrl: 'https://claude.ai/chat/eba6c807-e8ff-4dda-94af-b1fe39dec9c3',
+    fetch: async (url) => {
+      if (url.endsWith('/api/organizations')) return jsonResponse([{ uuid: 'org-1' }]);
+      return jsonResponse({
+        uuid: 'eba6c807-e8ff-4dda-94af-b1fe39dec9c3',
+        name: 'Image chat',
+        chat_messages: [
+          { uuid: 'm-1', sender: 'human', text: 'What is in this image?', files: [] },
+          { uuid: 'm-2', sender: 'assistant', text: 'It shows a diagram.', files: [] },
+          { uuid: 'm-3', sender: 'human', text: '', files: [{ file_kind: 'image', file_name: '1791114930888_image.png', file_uuid: 'f-9', preview_url: '/api/organizations/org-1/files/f-9/contents' }] }
+        ]
+      });
+    }
+  });
+
+  assert.equal(result.messages, 3);
+  assert.match(result.markdown, /!\[1791114930888_image\.png\]\(https:\/\/claude\.ai\/api\/organizations\/org-1\/files\/f-9\/contents\)/);
+});
+
 test('an API error does not silently export a partial empty conversation', async () => {
   await assert.rejects(collector.collect({
     adapters,
