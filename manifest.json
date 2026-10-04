@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Chat Export: Claude, ChatGPT & Grok",
   "description": "Copy or download the current AI conversation and its visible web sources as Markdown.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "permissions": ["activeTab", "scripting", "clipboardWrite"],
   "action": {
     "default_title": "Chat Export",
