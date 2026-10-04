@@ -45,7 +45,7 @@ Does not collect, store, or transmit user data. No remote code: every file ships
 
 ## Graphic assets (in this folder)
 
-- Screenshots: TODO — the store requires at least one (1280x800 or 640x400, no alpha). Deliberately not automated: capture by hand, avoiding any signed-in personal pages.
+- Screenshots: `screenshots/popup-chatgpt-1280x800.png`, `screenshots/popup-grok-1280x800.png` (1280x800, no alpha). Regenerate with `npm run assets`: every personal string is swapped for generic placeholder content before capture, and the build fails the shot if any known-original text remains — still eyeball the result before uploading.
 - Small promo tile: `tiles/promo-small-440x280.png` (440x280)
 - Marquee: `tiles/promo-marquee-1400x560.png` (1400x560, optional)
 - Store icon: upload `icons/icon128.png` (128x128)

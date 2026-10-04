@@ -362,27 +362,6 @@ test('resolveExportData does not replace a fuller visible conversation with a pa
   assert.equal(fuller.data.messages.length, 3);
 });
 
-test('merged Claude captures export older turns from partial responses', () => {
-  const firstPage = {
-    conversation_id: 'private-conversation-id',
-    chat_messages: [
-      { uuid: 'turn-2', role: 'assistant', created_at: '2025-01-02T00:00:00Z', content: [{ type: 'text', text: 'Answer two' }] },
-      { uuid: 'turn-3', role: 'human', created_at: '2025-01-03T00:00:00Z', content: [{ type: 'text', text: 'Question two' }] }
-    ]
-  };
-  const olderPage = {
-    conversation_id: 'private-conversation-id',
-    chat_messages: [
-      { uuid: 'turn-1', role: 'human', created_at: '2025-01-01T00:00:00Z', content: [{ type: 'text', text: 'Question one' }] },
-      { uuid: 'turn-2', role: 'assistant', created_at: '2025-01-02T00:00:00Z', content: [{ type: 'text', text: 'Answer two' }] }
-    ]
-  };
-  const merged = adapters.mergeStructuredResponses('claude', firstPage, olderPage);
-  const result = adapters.normalizeStructuredResponse(merged, 'https://claude.ai/share/public-token');
-  assert.deepEqual(result.messages.map((message) => message.text), ['Question one', 'Answer two', 'Question two']);
-  assert.match(adapters.toMarkdown(result), /Question one[\s\S]*Answer two[\s\S]*Question two/);
-});
-
 test('Claude MessageActions toolbar controls are not exported as turns', () => {
   const userDiv = makeNode('div', { 'data-message-author-role': 'user' }, 'Real user question about search');
   const toolbar = makeNode('div', { 'data-cds': 'MessageActions', role: 'toolbar' }, '\uE256 Retry Edit Copy');
@@ -556,26 +535,7 @@ test('ChatGPT flat messages payload reaches usable export state without mapping'
   assert.equal(resolved.source, 'structured');
 });
 
-test('Grok virtualized windows accumulate without duplicates or count loss', () => {
-  const turn = (role, text) => ({ role, text, links: [] });
-  const firstWindow = [turn('user', 'Question one'), turn('assistant', 'Answer one'), turn('user', 'Question two')];
-  const secondWindow = [turn('user', 'Question two'), turn('assistant', 'Answer two'), turn('user', 'Question three')];
-  const merged = adapters.mergeExportMessages(firstWindow, secondWindow);
-  assert.deepEqual(merged.map((message) => message.text), ['Question one', 'Answer one', 'Question two', 'Answer two', 'Question three']);
-
-  // Scrolling back up anchors on the shared boundary turn and prepends only
-  // the earlier unseen turns instead of duplicating the boundary.
-  const topWindow = [turn('user', 'Question one'), turn('assistant', 'Answer one')];
-  const bottomWindow = [turn('assistant', 'Answer one'), turn('user', 'Question two'), turn('assistant', 'Answer two')];
-  const scrolled = adapters.mergeExportMessages(bottomWindow, topWindow);
-  assert.deepEqual(scrolled.map((message) => message.text), ['Question one', 'Answer one', 'Question two', 'Answer two']);
-
-  // Re-observing the same window never duplicates or shrinks the export.
-  const repeated = adapters.mergeExportMessages(merged, secondWindow);
-  assert.deepEqual(repeated.map((message) => message.text), merged.map((message) => message.text));
-});
-
-test('Grok repeated identical turns survive extraction and merge', () => {
+test('Grok repeated identical turns survive extraction', () => {
   const first = makeNode('div', { 'data-message-author-role': 'user' }, 'Same question');
   const answer = makeNode('div', { 'data-message-author-role': 'assistant' }, 'Answer one');
   const second = makeNode('div', { 'data-message-author-role': 'user' }, 'Same question');
@@ -585,134 +545,6 @@ test('Grok repeated identical turns survive extraction and merge', () => {
   assert.equal(result.messages[0].text, 'Same question');
   assert.equal(result.messages[1].text, 'Answer one');
   assert.equal(result.messages[2].text, 'Same question');
-
-  // A later window ending with a new turn that repeats earlier text keeps
-  // both turns: only the shared ordered boundary collapses.
-  const history = [
-    { role: 'user', text: 'Same question', links: [] },
-    { role: 'assistant', text: 'Answer one', links: [] }
-  ];
-  const laterWindow = [
-    { role: 'assistant', text: 'Answer one', links: [] },
-    { role: 'user', text: 'Same question', links: [] }
-  ];
-  const merged = adapters.mergeExportMessages(history, laterWindow);
-  assert.equal(merged.length, 3);
-  assert.deepEqual(merged.map((message) => `${message.role}:${message.text}`), ['user:Same question', 'assistant:Answer one', 'user:Same question']);
-});
-
-test('Grok one-message snapshot repeating older nonadjacent history is preserved', () => {
-  // History holds a turn, then an intervening different turn. A lone
-  // incoming turn repeating the first turn is ambiguous content-only, so the
-  // merge must preserve it rather than treating it as already captured.
-  const history = [
-    { role: 'user', text: 'First question', links: [] },
-    { role: 'assistant', text: 'Different answer', links: [] }
-  ];
-  const incoming = [{ role: 'user', text: 'First question', links: [] }];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 3);
-  assert.deepEqual(merged.map((message) => `${message.role}:${message.text}`), ['user:First question', 'assistant:Different answer', 'user:First question']);
-
-  // The trivial steady state still collapses: a one-turn history
-  // re-observing its own lone turn must not duplicate on every refresh.
-  const steady = adapters.mergeExportMessages(
-    [{ role: 'user', text: 'Only question', links: [] }],
-    [{ role: 'user', text: 'Only question', links: [] }]
-  );
-  assert.equal(steady.length, 1);
-  assert.equal(steady[0].text, 'Only question');
-});
-
-test('Grok ID-less interior repeated sequence survives merge', () => {
-  // The repeated pair sits strictly inside history (neither prefix- nor
-  // suffix-anchored), so no boundary evidence claims it as re-observed:
-  // without stable IDs the merge must preserve it rather than dedupe it.
-  const history = [
-    { role: 'user', text: 'Opener', links: [] },
-    { role: 'user', text: 'Repeated question', links: [] },
-    { role: 'assistant', text: 'Repeated answer', links: [] },
-    { role: 'user', text: 'Closer', links: [] }
-  ];
-  const incoming = [
-    { role: 'user', text: 'Repeated question', links: [] },
-    { role: 'assistant', text: 'Repeated answer', links: [] }
-  ];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 6);
-  assert.deepEqual(merged.map((message) => message.text), ['Opener', 'Repeated question', 'Repeated answer', 'Closer', 'Repeated question', 'Repeated answer']);
-});
-
-test('Grok same-end suffix re-observation merges without duplicates', () => {
-  // Re-observing the tail window at the same end is defensible boundary
-  // evidence: the incoming suffix matches history's suffix, so collapse it.
-  const history = [
-    { role: 'user', text: 'Question one', links: [] },
-    { role: 'assistant', text: 'Answer one', links: [] },
-    { role: 'user', text: 'Question two', links: [] },
-    { role: 'assistant', text: 'Answer two', links: [] }
-  ];
-  const incoming = [
-    { role: 'user', text: 'Question two', links: [] },
-    { role: 'assistant', text: 'Answer two', links: [] }
-  ];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 4);
-  assert.deepEqual(merged.map((message) => message.text), ['Question one', 'Answer one', 'Question two', 'Answer two']);
-});
-
-test('Grok same-start ID-less window growth merges without duplicating prefix', () => {
-  // A grown virtualized snapshot re-observes history from the same start and
-  // appends new turns: history [a,b] plus incoming [a,b,c] must merge as
-  // [a,b,c] instead of duplicating the shared prefix.
-  const history = [
-    { role: 'user', text: 'Question one', links: [] },
-    { role: 'assistant', text: 'Answer one', links: [] }
-  ];
-  const incoming = [
-    { role: 'user', text: 'Question one', links: [] },
-    { role: 'assistant', text: 'Answer one', links: [] },
-    { role: 'user', text: 'Question two', links: [] }
-  ];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 3);
-  assert.deepEqual(merged.map((message) => message.text), ['Question one', 'Answer one', 'Question two']);
-});
-
-test('Grok repeated multi-turn sequence with different IDs survives merge', () => {
-  // Same content re-sent later with an intervening turn: the IDs prove these
-  // are distinct turns, so the repeated pair must survive even though its
-  // content matches an interior (here prefix-anchored) history sequence.
-  const history = [
-    { role: 'user', text: 'Status update', links: [], id: 'm-1' },
-    { role: 'assistant', text: 'Noted', links: [], id: 'm-2' },
-    { role: 'user', text: 'Something else', links: [], id: 'm-3' }
-  ];
-  const incoming = [
-    { role: 'user', text: 'Status update', links: [], id: 'm-9' },
-    { role: 'assistant', text: 'Noted', links: [], id: 'm-10' }
-  ];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 5);
-  assert.deepEqual(merged.map((message) => message.id), ['m-1', 'm-2', 'm-3', 'm-9', 'm-10']);
-});
-
-test('Grok interior window with matching stable IDs does not duplicate', () => {
-  // Re-observing an interior window whose IDs match history in order is
-  // ID-proven re-observation: collapse it instead of duplicating.
-  const history = [
-    { role: 'user', text: 'Status update', links: [], id: 'm-1' },
-    { role: 'assistant', text: 'Noted', links: [], id: 'm-2' },
-    { role: 'user', text: 'Something else', links: [], id: 'm-3' },
-    { role: 'assistant', text: 'Reply', links: [], id: 'm-4' }
-  ];
-  const incoming = [
-    { role: 'assistant', text: 'Noted', links: [], id: 'm-2' },
-    { role: 'user', text: 'Something else', links: [], id: 'm-3' }
-  ];
-  const merged = adapters.mergeExportMessages(history, incoming);
-  assert.equal(merged.length, 4);
-  assert.deepEqual(merged.map((message) => message.id), ['m-1', 'm-2', 'm-3', 'm-4']);
 });
 
 test('Grok extraction attaches data-message-id and dedupes same-ID twins', () => {
@@ -736,14 +568,6 @@ test('Stable message IDs attach Grok-only in extraction', () => {
     assert.equal(result.messages.length, 1);
     assert.equal(result.messages[0].id, undefined);
   }
-});
-
-test('Grok structured merge survives messages/chat_messages shape changes', () => {
-  const oldPayload = { conversations: [{ id: 'conv-1', messages: [{ role: 'user', content: 'Question one' }] }] };
-  const newPayload = { conversations: [{ id: 'conv-1', chat_messages: [{ role: 'user', content: 'Question one' }, { role: 'assistant', content: 'Answer one' }] }] };
-  const merged = adapters.mergeStructuredResponses('grok', oldPayload, newPayload);
-  const result = adapters.normalizeStructuredResponse(merged, 'https://grok.com/chat/1');
-  assert.deepEqual(result.messages.map((message) => message.text), ['Question one', 'Answer one']);
 });
 
 test('resolveExportData honors accumulated DOM history for virtualized pages', () => {
@@ -771,277 +595,6 @@ test('resolveExportData honors accumulated DOM history for virtualized pages', (
   assert.equal(resolved.source, 'dom');
   assert.equal(resolved.data.messages.length, 3);
   assert.equal(resolved.data.messages[0].text, 'Question one');
-});
-
-test('Grok streaming assistant turn updates in place instead of appending', () => {
-  // Grok renders a single assistant turn that mutates while it generates, so
-  // every mid-stream snapshot observed the same two DOM turns. Appending each
-  // snapshot inflated one two-turn conversation into 110 exported "messages".
-  const user = { role: 'user', text: 'find these numbers', links: [] };
-  const partials = [
-    'Worked for 1s',
-    'Ran 1 search',
-    'Ran 2 searches',
-    'Ran 3 searches',
-    'Ran 3 searches',
-    'Thinking',
-    'Worked for 4s',
-    'Worked for 17s'
-  ];
-  let history = null;
-  for (const text of partials) {
-    const snapshot = [{ role: 'user', text: user.text, links: [] }, { role: 'assistant', text, links: [] }];
-    history = history ? adapters.mergeExportMessages(history, snapshot) : snapshot;
-    assert.equal(history.length, 2, `streaming snapshot "${text}" must not add turns`);
-  }
-  assert.deepEqual(history.map((message) => message.role), ['user', 'assistant']);
-
-  // Once the turn settles, the completed text replaces the partial one.
-  const settled = adapters.mergeExportMessages(history, [
-    { role: 'user', text: user.text, links: [] },
-    { role: 'assistant', text: 'Worked for 17s\n\nFinal answer.', links: [] }
-  ]);
-  assert.equal(settled.length, 2);
-  assert.equal(settled[1].text, 'Worked for 17s\n\nFinal answer.');
-});
-
-test('Grok message count stays stable while scrolling a long chat', () => {
-  // Scrolling must neither grow the count nor drop or reorder turns once the
-  // full conversation has been observed.
-  const all = Array.from({ length: 60 }, (_, index) => ({
-    role: index % 2 ? 'assistant' : 'user',
-    text: `turn ${index}`,
-    links: []
-  }));
-  let history = null;
-  let widest = 0;
-  for (const [start, end] of [[0, 20], [10, 30], [20, 40], [30, 50], [40, 60], [30, 50], [20, 40], [10, 30], [0, 20], [25, 45]]) {
-    const window = all.slice(start, end);
-    history = history ? adapters.mergeExportMessages(history, window) : window;
-    // The count never shrinks and never exceeds everything observed so far.
-    assert.ok(history.length >= widest, `window ${start}-${end} shrank the count to ${history.length}`);
-    widest = Math.max(widest, end);
-    assert.equal(history.length, widest, `window ${start}-${end} produced ${history.length} turns`);
-  }
-  assert.equal(history.length, 60);
-  assert.deepEqual(history.map((message) => message.text), all.map((message) => message.text));
-});
-
-test('Grok scrolled window does not replace already accumulated history', () => {
-  // Returning to the top of a long chat re-observes a short window that shares
-  // its start with history. It is a re-observation, never a replacement.
-  const history = Array.from({ length: 40 }, (_, index) => ({
-    role: index % 2 ? 'assistant' : 'user',
-    text: `turn ${index}`,
-    links: []
-  }));
-  const topWindow = history.slice(0, 12);
-  const merged = adapters.mergeExportMessages(history, topWindow);
-  assert.equal(merged.length, 40);
-  assert.deepEqual(merged.map((message) => message.text), history.map((message) => message.text));
-});
-
-test('Grok genuine repeated turns are still preserved when history is well formed', () => {
-  // A user who re-sends an identical question still produces two turns. The
-  // containment rule only collapses a window that is already contiguous in an
-  // alternating (well-formed) history, so this repeated pair survives.
-  const history = [
-    { role: 'user', text: 'Same question', links: [] },
-    { role: 'assistant', text: 'Same answer', links: [] },
-    { role: 'user', text: 'Something else', links: [] },
-    { role: 'assistant', text: 'Different reply', links: [] },
-    { role: 'user', text: 'Same question', links: [] },
-    { role: 'assistant', text: 'Same answer', links: [] }
-  ];
-  const reobserved = adapters.mergeExportMessages(history, [
-    { role: 'user', text: 'Same question', links: [] },
-    { role: 'assistant', text: 'Same answer', links: [] }
-  ]);
-  assert.equal(reobserved.length, 6);
-  assert.deepEqual(reobserved.map((message) => message.text), history.map((message) => message.text));
-});
-
-test('Grok jump-to-end window merges interior overlap without duplicating', () => {
-  // Pressing Home then End produces a window that starts before history and
-  // ends inside it, so the shared span is interior to both. Boundary-only
-  // matching duplicated the entire shared span (42 turns reported as 55).
-  const truth = Array.from({ length: 42 }, (_, index) => ({
-    role: index % 2 ? 'assistant' : 'user',
-    text: `turn ${index}`,
-    links: []
-  }));
-  // Same conversation, but the shared tail turn renders longer on the second
-  // observation because its markdown expanded lazily.
-  const base = 'turn 21 shared answer body '.repeat(12);
-  const bottomWindow = truth.slice(9).map((message) => ({ ...message }));
-  bottomWindow[12] = { ...bottomWindow[12], text: base };
-  const homeWindow = truth.slice(0, 22).map((message) => ({ ...message }));
-  homeWindow[21] = { ...homeWindow[21], text: `${base}plus lazily expanded sources` };
-
-  const merged = adapters.mergeExportMessages(bottomWindow, homeWindow);
-  assert.equal(merged.length, 42);
-  assert.deepEqual(merged.map((message) => message.role), truth.map((message) => message.role));
-  // The shared span keeps the later, richer copy of the re-rendered turn, so
-  // compare the stable prefix rather than exact text.
-  assert.deepEqual(merged.map((message) => message.text.slice(0, 7)), truth.map((message) => message.text.slice(0, 7)));
-});
-
-test('Grok jump-to-end window also merges in the opposite scroll order', () => {
-  const truth = Array.from({ length: 42 }, (_, index) => ({
-    role: index % 2 ? 'assistant' : 'user',
-    text: `turn ${index}`,
-    links: []
-  }));
-  const base = 'turn 21 shared answer body '.repeat(12);
-  const homeWindow = truth.slice(0, 22).map((message) => ({ ...message }));
-  homeWindow[21] = { ...homeWindow[21], text: `${base}plus lazily expanded sources` };
-  const bottomWindow = truth.slice(9).map((message) => ({ ...message }));
-  bottomWindow[12] = { ...bottomWindow[12], text: base };
-
-  const merged = adapters.mergeExportMessages(homeWindow, bottomWindow);
-  assert.equal(merged.length, 42);
-  // The shared span keeps the later, richer copy of the re-rendered turn, so
-  // compare the stable prefix rather than exact text.
-  assert.deepEqual(merged.map((message) => message.text.slice(0, 7)), truth.map((message) => message.text.slice(0, 7)));
-});
-
-test('Grok re-rendered final turn replaces rather than appends', () => {
-  // The last turn changing text while everything before it matches is the
-  // streaming case, not a re-observed window, so the turn is replaced.
-  const history = [
-    { role: 'user', text: 'question one', links: [] },
-    { role: 'assistant', text: 'answer one', links: [] },
-    { role: 'user', text: 'question two', links: [] },
-    { role: 'assistant', text: 'a much longer answer that grew while streaming', links: [] }
-  ];
-  const different = [
-    { role: 'user', text: 'question one', links: [] },
-    { role: 'assistant', text: 'answer one', links: [] },
-    { role: 'user', text: 'question two', links: [] },
-    { role: 'assistant', text: 'completely unrelated content here', links: [] }
-  ];
-  const merged = adapters.mergeExportMessages(history, different);
-  assert.equal(merged.length, 4);
-  assert.equal(merged[merged.length - 1].text, 'completely unrelated content here');
-});
-
-test('Grok rewording a middle turn is preserved instead of merged away', () => {
-  // Rewording that is not a prefix extension must not be treated as the same
-  // turn, so the changed turn is kept alongside the original.
-  const history = [
-    { role: 'user', text: 'question one', links: [] },
-    { role: 'assistant', text: 'answer one', links: [] },
-    { role: 'user', text: 'question two', links: [] },
-    { role: 'assistant', text: 'the original answer two', links: [] },
-    { role: 'user', text: 'question three', links: [] },
-    { role: 'assistant', text: 'the original answer three', links: [] }
-  ];
-  const different = [
-    { role: 'user', text: 'question one', links: [] },
-    { role: 'assistant', text: 'answer one', links: [] },
-    { role: 'user', text: 'question two', links: [] },
-    { role: 'assistant', text: 'a totally rewritten answer two', links: [] },
-    { role: 'user', text: 'question three', links: [] },
-    { role: 'assistant', text: 'the original answer three', links: [] }
-  ];
-  // Both ends of the sequence still match, so the changed middle turn gives no
-  // shared run to align on and both versions are kept rather than losing one.
-  const merged = adapters.mergeExportMessages(history, different);
-  assert.equal(merged.length, 12);
-  assert.ok(merged.some((message) => message.text === 'a totally rewritten answer two'));
-  assert.ok(merged.some((message) => message.text === 'the original answer two'));
-});
-
-test('scroll walk keeps going until the top of the conversation and then stops', () => {
-  assert.equal(adapters.shouldContinueScrollWalk(0, 1, 9), true, 'keeps trying before any turn is seen');
-  assert.equal(adapters.shouldContinueScrollWalk(120, 4, 0), true, 'keeps going while turns are still appearing');
-  assert.equal(adapters.shouldContinueScrollWalk(120, 6, 1), true, 'one idle pass is not enough to stop');
-  assert.equal(adapters.shouldContinueScrollWalk(120, 8, 3), false, 'stops after repeated idle passes');
-  assert.equal(adapters.shouldContinueScrollWalk(120, 400, 0), false, 'stops at the pass ceiling');
-});
-
-// Turn text must be distinct enough that a shorter turn is not a prefix of a
-// longer one, which is what real conversation text looks like.
-function walkTurn(index) {
-  return { role: index % 2 ? 'assistant' : 'user', text: `Turn ${index} discussing topic ${index} in detail.`, links: [] };
-}
-
-test('scroll walk captures a whole virtualized conversation in order exactly once', () => {
-  // Grok mounts only a window of turns. Walking upward must recover every turn
-  // in conversation order without counting the overlap between windows twice.
-  const truth = Array.from({ length: 60 }, (_, index) => walkTurn(index));
-  const collector = adapters.createScrollCollector();
-  let last = 0;
-  let stable = 0;
-  let passes = 0;
-  while (adapters.shouldContinueScrollWalk(last, passes, stable)) {
-    passes += 1;
-    const high = Math.max(0, truth.length - (passes - 1) * 6);
-    const low = Math.max(0, high - 8);
-    const count = collector.add(truth.slice(low, high));
-    if (count > last) {
-      last = count;
-      stable = 0;
-    } else {
-      stable += 1;
-    }
-    if (high === 0) break;
-  }
-  const captured = collector.messages();
-  assert.equal(captured.length, 60);
-  assert.deepEqual(captured.map((message) => message.text), truth.map((message) => message.text));
-  assert.deepEqual(captured.map((message) => message.role), truth.map((message) => message.role));
-});
-
-test('scroll walk does not duplicate turns when windows only partly overlap', () => {
-  const truth = Array.from({ length: 40 }, (_, index) => walkTurn(index));
-  const collector = adapters.createScrollCollector();
-  for (const [low, high] of [[32, 40], [26, 34], [20, 28], [14, 22], [8, 16], [2, 10], [0, 4]]) {
-    collector.add(truth.slice(low, high));
-  }
-  const captured = collector.messages();
-  assert.equal(captured.length, 40);
-  assert.deepEqual(captured.map((message) => message.text), truth.map((message) => message.text));
-});
-
-test('scroll walk keeps the longer text when a turn re-renders richer', () => {
-  // Lazily expanded markdown must not be replaced by a shorter earlier read.
-  const collector = adapters.createScrollCollector();
-  collector.add([
-    { role: 'user', text: 'Question about the topic.', links: [] },
-    { role: 'assistant', text: 'Short answer.', links: [] }
-  ]);
-  collector.add([
-    { role: 'user', text: 'Question about the topic.', links: [] },
-    { role: 'assistant', text: 'Short answer with the sources expanded at length.', links: [] }
-  ]);
-  const captured = collector.messages();
-  assert.equal(captured.length, 2);
-  assert.equal(captured[1].text, 'Short answer with the sources expanded at length.');
-});
-
-test('scroll walk finds a scrollable conversation container', () => {
-  const scroller = { nodeType: 1, scrollHeight: 5000, clientHeight: 800, scrollTop: 0, parentElement: null };
-  const message = {
-    nodeType: 1,
-    parentElement: scroller,
-    getAttribute() { return ''; },
-    querySelector() { return null; }
-  };
-  const doc = {
-    querySelectorAll() { return [message]; },
-    scrollingElement: null,
-    documentElement: null
-  };
-  const originalGetComputedStyle = global.getComputedStyle;
-  global.getComputedStyle = () => ({ overflowY: 'auto' });
-  try {
-    assert.equal(adapters.findConversationScroller(doc), scroller);
-  } finally {
-    global.getComputedStyle = originalGetComputedStyle;
-  }
-  const flatDoc = { querySelectorAll() { return []; }, scrollingElement: null, documentElement: null };
-  assert.equal(adapters.findConversationScroller(flatDoc), null);
 });
 
 const { GROK_SHARE_FIXTURE } = require('./fixtures/grok-share.js');
@@ -1227,28 +780,6 @@ test('ChatGPT citation markers are replaced rather than exported raw', () => {
   );
 });
 
-test('ChatGPT paginated pages merge into one ordered conversation', () => {
-  // Scrolling back through a long conversation fetches older pages of the same
-  // endpoint. Each page is a slice, and merging must not duplicate or reorder.
-  const page = (ids, startId, endId, hasNext) => ({
-    messages: ids.map((id, index) => ({
-      id,
-      author: { role: index % 2 ? 'assistant' : 'user' },
-      // Absolute per-turn time, identical across pages: a turn keeps its real
-      // timestamp no matter which page carried it.
-      create_time: 1000 + id.charCodeAt(0) - 'a'.charCodeAt(0),
-      content: { content_type: 'text', parts: [`text ${id}`] },
-      metadata: {}
-    })),
-    page_info: { start_cursor: startId, end_cursor: endId, has_previous_page: !hasNext, has_next_page: hasNext }
-  });
-  const newest = page(['d', 'e', 'f'], 'd', 'f', true);
-  const older = page(['a', 'b', 'c', 'd'], 'a', 'd', false);
-  const merged = adapters.mergeStructuredResponses('chatgpt', newest, older);
-  const result = adapters.normalizeStructuredResponse(merged, 'https://chatgpt.com/c/abc');
-  assert.deepEqual(result.messages.map((message) => message.text), ['text a', 'text b', 'text c', 'text d', 'text e', 'text f']);
-});
-
 test('an accumulated DOM view cannot displace a complete conversation payload', () => {
   // Scrolling a virtualized chat re-reads the same turns, and the DOM text for a
   // turn differs slightly from the payload's (rendered emphasis, an appended
@@ -1329,62 +860,6 @@ test('a partial payload still yields to a fuller visible conversation', () => {
   assert.equal(resolved.data.messages.length, 4);
 });
 
-test('ChatGPT page cursors walk back to the opening turn', () => {
-  // The page only requests the newest slice, so older turns need an explicit
-  // walk using the cursor from page_info.
-  const middle = {
-    messages: [{ id: 'm1', author: { role: 'user' }, content: { content_type: 'text', parts: ['newest'] }, metadata: {} }],
-    page_info: { start_cursor: 'cursor-mid', end_cursor: 'cursor-new', has_previous_page: true, has_next_page: false }
-  };
-  assert.equal(adapters.nextConversationPageCursor(middle), 'cursor-mid');
-
-  const oldest = {
-    messages: [{ id: 'm0', author: { role: 'user' }, content: { content_type: 'text', parts: ['oldest'] }, metadata: {} }],
-    page_info: { start_cursor: 'cursor-old', end_cursor: 'cursor-mid', has_previous_page: false, has_next_page: true }
-  };
-  assert.equal(adapters.nextConversationPageCursor(oldest), null, 'the walk stops at the opening turn');
-
-  assert.equal(adapters.nextConversationPageCursor({}), null);
-  assert.equal(adapters.nextConversationPageCursor(null), null);
-  assert.equal(adapters.nextConversationPageCursor({ page_info: { has_previous_page: true } }), null);
-});
-
-test('ChatGPT pages assemble into the whole conversation', () => {
-  // Two pages captured from the real backend, merged the way pagination does.
-  const newer = {
-    messages: [
-      { id: 'b1', author: { role: 'user' }, create_time: 300, content: { content_type: 'text', parts: ['third question'] }, metadata: {} },
-      { id: 'b2', author: { role: 'assistant' }, create_time: 301, content: { content_type: 'text', parts: ['third answer'] }, metadata: {} }
-    ],
-    page_info: { start_cursor: 'c-mid', has_previous_page: true }
-  };
-  const older = {
-    messages: [
-      { id: 'a1', author: { role: 'user' }, create_time: 100, content: { content_type: 'text', parts: ['first question'] }, metadata: {} },
-      { id: 'a2', author: { role: 'assistant' }, create_time: 101, content: { content_type: 'text', parts: ['first answer'] }, metadata: {} },
-      { id: 'b1', author: { role: 'user' }, create_time: 300, content: { content_type: 'text', parts: ['third question'] }, metadata: {} },
-      { id: 'b2', author: { role: 'assistant' }, create_time: 301, content: { content_type: 'text', parts: ['third answer'] }, metadata: {} }
-    ],
-    page_info: { start_cursor: 'c-old', has_previous_page: false }
-  };
-  let captured = newer;
-  let cursor = adapters.nextConversationPageCursor(newer);
-  let guard = 0;
-  while (cursor && guard < 10) {
-    guard += 1;
-    if (cursor !== 'c-mid') break;
-    captured = adapters.mergeStructuredResponses('chatgpt', captured, older);
-    const next = adapters.nextConversationPageCursor(older);
-    if (!next) { cursor = null; break; }
-    cursor = next;
-  }
-  const result = adapters.normalizeStructuredResponse(captured, 'https://chatgpt.com/c/x');
-  assert.deepEqual(result.messages.map((message) => message.text), [
-    'first question', 'first answer', 'third question', 'third answer'
-  ]);
-});
-
-
 test('one-shot collection targets the private conversation id, never a share token', () => {
   const collector = require('../src/collector.js');
   assert.equal(collector.chatGPTId('https://chatgpt.com/c/6ac073ef-2f00-83ec-9610-d731f0ea90d9'), '6ac073ef-2f00-83ec-9610-d731f0ea90d9');
@@ -1392,21 +867,6 @@ test('one-shot collection targets the private conversation id, never a share tok
   assert.equal(collector.chatGPTId('https://chatgpt.com/share/6ac0a6c1-9700-83ec-8be5-429188517ebe'), null);
 });
 
-
-test('ChatGPT pagination falls back to the oldest turn id without page_info', () => {
-  // The cursor page_info reports is just the oldest turn id on the page, so a
-  // payload without page_info can still seed the walk instead of skipping it.
-  assert.equal(adapters.nextConversationPageCursor({}), null);
-  // The real shape: a cursor plus has_previous_page drives the walk.
-  assert.equal(
-    adapters.nextConversationPageCursor({ page_info: { start_cursor: 'oldest-id', has_previous_page: true } }),
-    'oldest-id'
-  );
-  assert.equal(
-    adapters.nextConversationPageCursor({ page_info: { start_cursor: 'oldest-id', has_previous_page: false } }),
-    null
-  );
-});
 
 test('the same turn is recognised across how the page and the payload render it', () => {
   // One turn, three renderings: raw markdown from the conversation payload,
@@ -1421,22 +881,14 @@ test('the same turn is recognised across how the page and the payload render it'
   assert.equal(adapters.comparisonText(payload.text), adapters.comparisonText(rendered.text));
   assert.equal(adapters.comparisonText(rendered.text), adapters.comparisonText(withSources.text));
   // The exported text itself is never rewritten.
-  assert.match(payload.text, /\\*\\*/);
+  assert.match(payload.text, /\*\*/);
   assert.match(rendered.text, /^Worked for 45s/);
-
-  // The merge keeps one turn rather than accumulating a copy per render.
-  const merged = adapters.mergeExportMessages([payload], [rendered]);
-  assert.equal(merged.length, 1);
-  const mergedAgain = adapters.mergeExportMessages(merged, [withSources]);
-  assert.equal(mergedAgain.length, 1);
 });
 
 test('genuinely different turns are still distinguished after normalisation', () => {
   const a = { role: 'user', text: 'what is the minimum budget for refterm on a mac', links: [] };
   const b = { role: 'user', text: 'what is the minimum budget for refterm on a macbook', links: [] };
   assert.notEqual(adapters.comparisonText(a.text), adapters.comparisonText(b.text));
-  const merged = adapters.mergeExportMessages([{ ...a }, { role: 'assistant', text: 'an answer', links: [] }], [b]);
-  assert.equal(merged.length, 3, 'a repeated turn is still preserved');
 });
 
 // A private Grok conversation page loads its responses in batches of
@@ -1481,20 +933,6 @@ test('a bare Grok response batch is recognized and normalized', () => {
   assert.deepEqual(result.messages.map((message) => message.id), ['r1', 'r2']);
   assert.equal(result.searches.length, 1);
   assert.equal(result.searches[0].sources[0].url, 'https://example.com/a');
-});
-
-test('overlapping Grok response batches merge without duplicating a turn', () => {
-  const full = grokLoadedBatch();
-  const first = { responses: full.responses.slice(0, 2) };
-  const alsoFirst = { responses: [full.responses[0], { ...full.responses[1], message: 'Here is the concrete calculation for a minimal app, expanded with sources.' }] };
-  const merged = adapters.mergeStructuredResponses('grok', first, alsoFirst);
-  assert.equal(merged.responses.length, 2);
-  // The re-loaded turn keeps the richer text rather than the earlier read.
-  assert.match(merged.responses[1].message, /expanded with sources/);
-
-  const second = { responses: [full.responses[1], { responseId: 'r3', sender: 'human', message: 'i want to see the math' }] };
-  const grown = adapters.mergeStructuredResponses('grok', merged, second);
-  assert.equal(grown.responses.length, 3);
 });
 
 test('a repeated DOM rendering does not outrank a complete Grok payload', () => {

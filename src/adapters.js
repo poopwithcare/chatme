@@ -15,50 +15,6 @@
     return null;
   }
 
-  // Identifies which conversation a payload belongs to, so payloads from two
-  // conversations are never merged together. Both platforms route on the client,
-  // so moving between conversations keeps the same document and anything already
-  // accumulated is still sitting there.
-  //
-  // page-capture.js carries its own copy of this because it runs in the page's
-  // world, where this bundle is not reachable.
-  function conversationIdFromPageUrl(pageUrl) {
-    try {
-      const path = new URL(pageUrl).pathname;
-      // A share link is keyed by a public token, which is not a conversation id.
-      if (/^\/share\//i.test(path)) return null;
-      const match = path.match(/\/(?:c|g|chat|conversations?)\/([^/?#]+)/i);
-      return match ? decodeURIComponent(match[1]) : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function conversationIdInPayload(platform, data) {
-    if (!data || typeof data !== 'object') return null;
-    if (platform === 'claude') return data.conversation_id || data.uuid || data.id || null;
-    if (platform === 'chatgpt') return data.conversation_id || data.id || null;
-    if (platform === 'grok') {
-      const conv = Array.isArray(data.conversations) ? data.conversations[0] : null;
-      return (conv && (conv.id || conv.conversation_id)) || data.conversation_id || data.id || null;
-    }
-    return null;
-  }
-
-  function conversationKeyFor(platform, data, pageUrl) {
-    const fromUrl = conversationIdFromPageUrl(pageUrl);
-    if (fromUrl) return `id:${fromUrl}`;
-    const fromPayload = conversationIdInPayload(platform, data);
-    if (fromPayload) return `id:${fromPayload}`;
-    try {
-      // The path alone: a query parameter such as a Grok rid changes while
-      // staying on the same conversation.
-      return `path:${new URL(pageUrl).pathname}`;
-    } catch (_) {
-      return null;
-    }
-  }
-
   function conversationRoute(platform, locationLike) {
     const path = String(locationLike && locationLike.pathname || '/');
     if (platform === 'claude') return /^\/(chat|chat_|share\/)/i.test(path);
@@ -289,19 +245,6 @@
     });
   }
 
-  function exportMessageKey(message) {
-    if (!message || typeof message !== 'object') return '';
-    const role = String(message.role || '');
-    const text = String(message.text || '');
-    let urls = '';
-    try {
-      if (Array.isArray(message.links)) urls = message.links.map((link) => link && link.url || '').join('\n');
-    } catch (_) {
-      urls = '';
-    }
-    return `${role}\n${text}\n${urls}`;
-  }
-
   // Stable DOM identity: Grok message candidates may carry data-message-id
   // (either on the matched node or on the message element inside it). When
   // present it identifies the turn across virtualized snapshots; when absent
@@ -315,21 +258,6 @@
       if (nested) return String(nested);
     } catch (_) {}
     return null;
-  }
-
-  function exportStableId(message) {
-    if (!message || typeof message !== 'object') return null;
-    if (message.id == null) return null;
-    const text = String(message.id);
-    return text ? text : null;
-  }
-
-  // Conflicting stable identity: both turns carry IDs and they differ, so
-  // they are provably distinct turns even when their content matches.
-  function exportIdsConflict(left, right) {
-    const a = exportStableId(left);
-    const b = exportStableId(right);
-    return a != null && b != null && a !== b;
   }
 
   // Text reduced to what identifies a turn, ignoring how the page happens to
@@ -359,10 +287,6 @@
     return `${String(message.role || '')}\n${comparisonText(message.text)}`;
   }
 
-  function sameExportTurn(left, right) {
-    return exportSequenceKey(left) === exportSequenceKey(right);
-  }
-
   function unionExportLinks(into, from) {
     try {
       const known = new Set((into.links || []).map((link) => link && link.url));
@@ -374,336 +298,6 @@
       }
     } catch (_) {}
     return into;
-  }
-
-  function copyExportMessage(message) {
-    const copy = { role: message.role, text: message.text, links: Array.isArray(message.links) ? message.links.slice() : [] };
-    const id = exportStableId(message);
-    if (id != null) copy.id = id;
-    return copy;
-  }
-
-  // Contiguous ordered ID run of needle inside haystack: every needle turn
-  // carries a stable ID and the IDs appear in haystack as one ordered run.
-  // This proves re-observation (stable identity), unlike content matching.
-  function findIdSequenceRun(haystack, needle) {
-    if (!needle.length) return 0;
-    const wanted = needle.map(exportStableId);
-    if (wanted.some((id) => id == null)) return -1;
-    const have = haystack.map(exportStableId);
-    for (let start = 0; start + wanted.length <= have.length; start++) {
-      let match = true;
-      for (let index = 0; index < wanted.length; index++) {
-        if (have[start + index] == null || have[start + index] !== wanted[index]) { match = false; break; }
-      }
-      if (match) return start;
-    }
-    return -1;
-  }
-
-  // A real conversation alternates user/assistant turns with no two adjacent
-  // turns sharing a role. Accumulated history that violates this did not come
-  // from a well-formed turn sequence, so it carries no evidence that a
-  // contained window is a re-observation rather than a repeated send.
-  function isAlternatingTurnSequence(list) {
-    if (!Array.isArray(list) || list.length < 2) return true;
-    for (let index = 1; index < list.length; index++) {
-      if (String(list[index].role || '') === String(list[index - 1].role || '')) return false;
-    }
-    return true;
-  }
-
-  // Auto-scroll loader: Grok mounts only the turns near the viewport, so a
-  // conversation that has not been scrolled cannot be read in full from the
-  // DOM. Driving the page's own scroll makes Grok fetch and mount its older
-  // turns itself, which the capture layer then records. The walk ends once
-  // several consecutive passes stop finding new turns, meaning the beginning
-  // of the conversation was reached.
-  const SCROLL_STABLE_PASSES_TO_STOP = 3;
-  const SCROLL_MAX_PASSES = 400;
-
-  function shouldContinueScrollWalk(totalTurns, passes, stablePasses) {
-    if (passes >= SCROLL_MAX_PASSES) return false;
-    if (!totalTurns) return true;
-    return stablePasses < SCROLL_STABLE_PASSES_TO_STOP;
-  }
-
-  // Accumulates turns seen during an auto-scroll walk. Scrolling upward only
-  // reveals older turns, and consecutive windows are often adjacent or
-  // overlapping without sharing enough identical text for overlap detection
-  // to order them. Turns are therefore held by position, and each window is
-  // placed at whichever position lines up with the most turns it re-shows.
-  // That keeps the result in conversation order and stops the overlap between
-  // neighbouring windows from being counted twice.
-  function createScrollCollector() {
-    // Keyed by position relative to the first window observed, so a later
-    // window reaching further back can occupy negative positions.
-    const held = new Map();
-
-    function place(win) {
-      if (!held.size) return 0;
-      let lowest = 0;
-      let highest = 0;
-      for (const position of held.keys()) {
-        if (position < lowest) lowest = position;
-        if (position > highest) highest = position;
-      }
-      let best = null;
-      // Try every plausible placement, including ones reaching further back
-      // than the oldest held turn, and score how many turns agree on each side
-      // of the window. Scrolling upward only ever reveals older turns, so a
-      // placement that puts the window entirely at or before the held span is
-      // the consistent one; prefer it over an equal-scoring placement that
-      // would claim the window is newer than turns already captured.
-      for (let offset = lowest - win.length; offset <= highest + win.length; offset++) {
-        let forward = 0;
-        for (let index = 0; index < win.length; index++) {
-          const known = held.get(offset + index);
-          if (known && textAgreesDespiteLength(known, win[index]) && !exportIdsConflict(known, win[index])) forward += 1;
-        }
-        let behind = 0;
-        for (let index = 1; index < win.length; index++) {
-          const known = held.get(offset - index);
-          if (known && textAgreesDespiteLength(known, win[index - 1]) && !exportIdsConflict(known, win[index - 1])) behind += 1;
-        }
-        const score = forward + behind;
-        if (!score) continue;
-        // A window may not start after the newest held turn.
-        if (offset > highest) continue;
-        if (!best || score > best.score) best = { offset, score };
-      }
-      // Nothing lines up: the window holds only turns not yet captured and is
-      // older than everything held so far.
-      return best ? best.offset : lowest - win.length;
-    }
-
-    return {
-      add(window_) {
-        const win = (Array.isArray(window_) ? window_ : []).filter(Boolean);
-        if (!win.length) return held.size;
-        const offset = place(win);
-        for (let index = 0; index < win.length; index++) {
-          const at = offset + index;
-          const known = held.get(at);
-          if (!known) {
-            held.set(at, copyExportMessage(win[index]));
-          } else if (textAgreesDespiteLength(known, win[index]) && !exportIdsConflict(known, win[index])) {
-            // Keep the richer copy so lazily expanded content is not lost.
-            if (String(win[index].text || '').length > String(known.text || '').length) {
-              held.set(at, copyExportMessage(win[index]));
-            }
-            unionExportLinks(held.get(at), win[index]);
-          } else if (!exportIdsConflict(known, win[index])) {
-            held.set(at, copyExportMessage(win[index]));
-          }
-        }
-        return held.size;
-      },
-      messages() {
-        return Array.from(held.keys()).sort((a, b) => a - b).map((key) => copyExportMessage(held.get(key)));
-      }
-    };
-  }
-
-  // Find the scrolling element that holds the conversation. Prefers the
-  // nearest scrollable ancestor of a message node, then the document.
-  function findConversationScroller(doc) {
-    try {
-      const selector = getCandidateSelector('grok');
-      const nodes = Array.from(doc.querySelectorAll(selector));
-      for (const node of nodes) {
-        let el = node.parentElement || node.parentNode;
-        while (el && el.nodeType === 1) {
-          if (el.scrollHeight > el.clientHeight + 8 && /auto|scroll|overlay/.test(getComputedStyle(el).overflowY || '')) return el;
-          el = el.parentElement || el.parentNode;
-        }
-      }
-      const root = doc.scrollingElement || doc.documentElement;
-      if (root && root.scrollHeight > root.clientHeight + 8) return root;
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // Longest contiguous run where needle aligns inside haystack, tolerating a
-  // text-length difference in each aligned pair. The same rendered turn can
-  // come back with different text (lazy markdown/code expansion, lazily loaded
-  // sources), so requiring byte-identical text makes a real overlap invisible
-  // and duplicates the whole shared span on every scroll. Alignment is still
-  // positional and ordered, and a differing pair must share a long common
-  // prefix so unrelated turns are not treated as the same turn.
-  const MIN_DIVERGENT_TEXT_RATIO = 0.6;
-
-  function textAgreesDespiteLength(left, right) {
-    if (sameExportTurn(left, right)) return true;
-    const a = comparisonText(left.text);
-    const b = comparisonText(right.text);
-    if (!a.length || !b.length) return false;
-    const shorter = a.length <= b.length ? a : b;
-    const longer = a.length <= b.length ? b : a;
-    // One must be a prefix of the other (growth, not rewording) and share
-    // enough of the shorter text to be the same turn.
-    if (!longer.startsWith(shorter)) return false;
-    return shorter.length >= longer.length * MIN_DIVERGENT_TEXT_RATIO;
-  }
-
-  // Align an incoming window against history anywhere in the sequence, not just
-  // at a boundary. Virtualized scrolling produces windows whose shared span is
-  // interior to history (pressing Home jumps to a window that starts before
-  // history and ends inside it), so boundary-only matching duplicates the
-  // entire shared span. Requires a non-trivial shared run, and requires that
-  // at most one side has unseen turns at each end: two unseen suffixes is a
-  // streaming mutation rather than a re-observation, and a window identical to
-  // all of history adds nothing.
-  function alignWindowToHistory(left, right) {
-    let best = null;
-    for (let li = 0; li < left.length; li++) {
-      for (let ri = 0; ri < right.length; ri++) {
-        let len = 0;
-        while (li + len < left.length && ri + len < right.length &&
-          textAgreesDespiteLength(left[li + len], right[ri + len]) &&
-          !exportIdsConflict(left[li + len], right[ri + len])) len++;
-        if (len < 2) continue;
-        const preLeft = li > 0;
-        const preRight = ri > 0;
-        const postLeft = li + len < left.length;
-        const postRight = ri + len < right.length;
-        if (preLeft && preRight) continue;
-        if (postLeft && postRight) continue;
-        if (!preLeft && !preRight && !postLeft && !postRight) continue;
-        if (!best || len > best.len) best = { len, li, ri };
-      }
-    }
-    return best;
-  }
-
-  function mergeExportMessages(existing, incoming) {
-    const left = (Array.isArray(existing) ? existing : []).filter(Boolean).map(copyExportMessage);
-    const right = (Array.isArray(incoming) ? incoming : []).filter(Boolean).map(copyExportMessage);
-    if (!left.length) return right;
-    if (!right.length) return left;
-    // A lone incoming turn carries no sequence evidence: content-only it is
-    // ambiguous between a re-observed turn and a legitimate repeat of older
-    // nonadjacent content, so resolve it by stable identity when present and
-    // otherwise prefer preserving it. The single content-only exception is
-    // the trivial steady state (a one-turn history re-observing its own
-    // turn), which must not duplicate on every refresh.
-    if (right.length === 1) {
-      const rid = exportStableId(right[0]);
-      if (rid != null) {
-        const at = left.findIndex((item) => exportStableId(item) === rid);
-        if (at >= 0) {
-          unionExportLinks(left[at], right[0]);
-          return left;
-        }
-        return left.concat(right);
-      }
-      if (left.length === 1 && sameExportTurn(left[0], right[0])) {
-        unionExportLinks(left[0], right[0]);
-        return left;
-      }
-      return left.concat(right);
-    }
-    // ID-proven interior re-observation: every incoming ID matches one
-    // contiguous ordered run in history (stable identity, not content).
-    const rerunAt = findIdSequenceRun(left, right);
-    if (rerunAt >= 0) {
-      for (let index = 0; index < right.length; index++) unionExportLinks(left[rerunAt + index], right[index]);
-      return left;
-    }
-    // Fuller incoming window superseding history: accept only when stable IDs
-    // prove the overlap. One-sided window growth is already merged by the
-    // boundary overlap below; a strictly interior ID-less content match is
-    // not identity evidence, so it falls through and is preserved.
-    // Conflicting IDs mean distinct turns: preserve both.
-    const growthAt = findIdSequenceRun(right, left);
-    if (growthAt >= 0) {
-      for (let index = 0; index < left.length; index++) unionExportLinks(right[growthAt + index], left[index]);
-      return right;
-    }
-    // Streaming in-place update: Grok renders one assistant turn that mutates
-    // in place while it generates ("Working for 1s" -> "Ran 2 searches" ->
-    // final answer). A snapshot observed mid-stream therefore agrees with the
-    // start of the accumulated history and differs only in its final
-    // assistant turn. That is the same turn gaining content, not new turns,
-    // so the newer snapshot supersedes history instead of appending.
-    // Anchoring on the shared leading turns is what makes this safe: a
-    // scrolled window (different leading turn) or a legitimately repeated
-    // sequence does not agree from the start and never reaches here.
-    const supersedes = left.length >= 2 &&
-      left.length <= right.length &&
-      left.slice(0, -1).every((turn, index) => sameExportTurn(turn, right[index]) && !exportIdsConflict(turn, right[index])) &&
-      left[left.length - 1].role === 'assistant' &&
-      right[right.length - 1] && right[right.length - 1].role === 'assistant';
-    if (supersedes) {
-      for (let index = 0; index < right.length; index++) unionExportLinks(right[index], left[index]);
-      return right;
-    }
-    // Window aligned anywhere in history: the incoming window shares an ordered
-    // run with history and extends it at one end. Merge as the unseen turns
-    // plus the shared span, preferring the incoming copy of the shared turns
-    // because a later observation can carry richer text (expanded markdown,
-    // loaded sources). This is what keeps the count stable when scrolling or
-    // jumping to the start/end of a long chat.
-    if (isAlternatingTurnSequence(left)) {
-      const alignment = alignWindowToHistory(left, right);
-      if (alignment) {
-        const { len, li, ri } = alignment;
-        const prefix = li > 0 ? left.slice(0, li) : right.slice(0, ri);
-        const shared = right.slice(ri, ri + len);
-        const suffix = li + len < left.length ? left.slice(li + len) : right.slice(ri + len);
-        for (let index = 0; index < len; index++) unionExportLinks(shared[index], left[li + index]);
-        return prefix.concat(shared, suffix);
-      }
-    }
-    // Boundary-anchored content overlap (either scroll direction). Positions
-    // with conflicting stable IDs never count as the same turn, so a
-    // repeated sequence with differing IDs survives even at the boundary.
-    let overlap = 0;
-    for (let size = Math.min(left.length, right.length); size > 0; size--) {
-      let match = true;
-      for (let index = 0; index < size; index++) {
-        if (!sameExportTurn(left[left.length - size + index], right[index]) ||
-          exportIdsConflict(left[left.length - size + index], right[index])) { match = false; break; }
-      }
-      if (match) { overlap = size; break; }
-    }
-    if (overlap) {
-      for (let index = 0; index < overlap; index++) unionExportLinks(left[left.length - overlap + index], right[index]);
-      return left.concat(right.slice(overlap));
-    }
-    let prependOverlap = 0;
-    for (let size = Math.min(left.length, right.length); size > 0; size--) {
-      let match = true;
-      for (let index = 0; index < size; index++) {
-        if (!sameExportTurn(right[right.length - size + index], left[index]) ||
-          exportIdsConflict(right[right.length - size + index], left[index])) { match = false; break; }
-      }
-      if (match) { prependOverlap = size; break; }
-    }
-    if (prependOverlap) {
-      for (let index = 0; index < prependOverlap; index++) unionExportLinks(left[index], right[right.length - prependOverlap + index]);
-      return right.slice(0, right.length - prependOverlap).concat(left);
-    }
-    // Interior content-only matches are not evidence of identity: preserve.
-    return left.concat(right);
-  }
-
-  function mergeExportData(existing, incoming) {
-    if (!existing) return incoming || null;
-    if (!incoming) return existing;
-    return {
-      ...existing,
-      ...incoming,
-      title: existing.title || incoming.title,
-      url: existing.url || incoming.url,
-      platform: existing.platform || incoming.platform,
-      platformName: existing.platformName || incoming.platformName,
-      capturedAt: incoming.capturedAt || existing.capturedAt,
-      messages: mergeExportMessages(existing.messages, incoming.messages),
-      searches: mergeSearches(existing.searches, incoming.searches)
-    };
   }
 
   function extractConversation(doc, platform, pageUrl) {
@@ -720,7 +314,8 @@
         nodes = [];
       }
     }
-    nodes = dedupeCandidates(nodes);    const messages = [];
+    nodes = dedupeCandidates(nodes);
+    const messages = [];
     const seenStableIds = new Set();
     for (const node of nodes) {
       if (isExcludedMessageCandidate(node)) continue;
@@ -844,11 +439,6 @@
     return null;
   }
 
-  function structuredMessageId(message) {
-    return message && (message.uuid || message.id || message.message_id || message.message_uuid ||
-      (message.message && (message.message.uuid || message.message.id)));
-  }
-
   function structuredMessageTime(message) {
     const value = message && (message.create_time || message.created_at || message.createdAt || message.timestamp || message.updated_at || message.updatedAt);
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -857,132 +447,6 @@
       if (Number.isFinite(time)) return time;
     }
     return null;
-  }
-
-  function mergeStructuredMessages(existing, incoming) {
-    const left = Array.isArray(existing) ? existing : [];
-    const right = Array.isArray(incoming) ? incoming : [];
-    if (!left.length) return right.slice();
-    if (!right.length) return left.slice();
-    const hasIds = left.some(structuredMessageId) || right.some(structuredMessageId);
-    let merged;
-    if (!hasIds) {
-      const same = (a, b) => {
-        try { return JSON.stringify(a) === JSON.stringify(b); } catch (_) { return false; }
-      };
-      const contains = (haystack, needle) => {
-        for (let start = 0; start + needle.length <= haystack.length; start++) {
-          if (needle.every((item, index) => same(item, haystack[start + index]))) return true;
-        }
-        return false;
-      };
-      if (contains(left, right)) return left.slice();
-      if (contains(right, left)) return right.slice();
-      let overlap = 0;
-      for (let size = Math.min(left.length, right.length); size > 0; size--) {
-        if (left.slice(-size).every((item, index) => same(item, right[index]))) { overlap = size; break; }
-      }
-      if (overlap) merged = left.concat(right.slice(overlap));
-      else {
-        let prependOverlap = 0;
-        for (let size = Math.min(left.length, right.length); size > 0; size--) {
-          if (right.slice(-size).every((item, index) => same(item, left[index]))) { prependOverlap = size; break; }
-        }
-        merged = prependOverlap ? right.slice(0, -prependOverlap).concat(left) : left.concat(right);
-      }
-    } else {
-      merged = left.slice();
-      const positions = new Map();
-      merged.forEach((message, index) => {
-        const id = structuredMessageId(message);
-        if (id != null) positions.set(String(id), index);
-      });
-      for (const message of right) {
-        const id = structuredMessageId(message);
-        const at = id == null ? -1 : positions.get(String(id));
-        if (at != null && at >= 0) merged[at] = message;
-        else merged.push(message);
-        if (id != null) positions.set(String(id), at != null && at >= 0 ? at : merged.length - 1);
-      }
-    }
-    const times = merged.map(structuredMessageTime);
-    if (times.every((time) => time != null)) return merged.map((message, index) => ({ message, index, time: times[index] })).sort((a, b) => a.time - b.time || a.index - b.index).map((entry) => entry.message);
-    return merged;
-  }
-
-  function mergeStructuredResponses(platform, existing, incoming) {
-    if (!existing || platformForPayload(existing) !== platform) return incoming;
-    if (!incoming || platformForPayload(incoming) !== platform) return existing;
-    if (platform === 'claude') {
-      return { ...existing, ...incoming, chat_messages: mergeStructuredMessages(existing.chat_messages, incoming.chat_messages) };
-    }
-    if (platform === 'chatgpt') {
-      const merged = { ...existing, ...incoming, current_node: incoming.current_node || existing.current_node };
-      // Only carry a mapping when there is one. Injecting an empty object would
-      // make a merged flat message list look like a mapping graph and produce
-      // an empty export.
-      if (existing.mapping || incoming.mapping) {
-        merged.mapping = { ...(existing.mapping || {}), ...(incoming.mapping || {}) };
-      }
-      if (Array.isArray(existing.messages) || Array.isArray(incoming.messages)) {
-        merged.messages = mergeStructuredMessages(existing.messages, incoming.messages);
-      }
-      return merged;
-    }
-    if (platform === 'grok') {
-      // A private conversation loads responses in batches of { responses: [...] }.
-      // Merge those by stable response id so re-loading the same turn never
-      // duplicates it, and loading a further batch extends the conversation.
-      if (Array.isArray(existing.responses) || Array.isArray(incoming.responses)) {
-        const byId = new Map();
-        const order = [];
-        const add = (entry) => {
-          if (!entry || typeof entry !== 'object') return;
-          const id = entry.responseId || entry.id;
-          const at = id ? byId.get(String(id)) : null;
-          if (at != null) {
-            byId.set(String(id), { ...at, ...entry });
-            return;
-          }
-          if (id) byId.set(String(id), entry);
-          order.push(id ? String(id) : `#${order.length}`);
-        };
-        for (const entry of (existing.responses || [])) add(entry);
-        for (const entry of (incoming.responses || [])) add(entry);
-        const responses = order.map((key) => byId.get(key)).filter(Boolean);
-        const base = { ...existing, ...incoming };
-        delete base.responses;
-        delete base.conversations;
-        return { ...base, responses };
-      }
-      const oldList = Array.isArray(existing) ? existing : (existing.conversations || [existing]);
-      const nextList = Array.isArray(incoming) ? incoming : (incoming.conversations || [incoming]);
-      const mergedList = oldList.slice();
-      for (const conversation of nextList) {
-        const key = conversation.id || conversation.conversation_id;
-        const index = mergedList.findIndex((old, i) => String(old.id || old.conversation_id || i) === String(key || (nextList.length === 1 ? 0 : -1)));
-        if (index < 0) { mergedList.push(conversation); continue; }
-        const old = mergedList[index];
-        // Grok payloads name the turn list `messages` or `chat_messages`
-        // depending on endpoint/page. Merge both keys when present so a shape
-        // change across paginated/scrolled responses cannot drop turns.
-        const mergedConversation = { ...old, ...conversation };
-        let mergedAny = false;
-        for (const messagesKey of ['messages', 'chat_messages']) {
-          if (Array.isArray(old[messagesKey]) || Array.isArray(conversation[messagesKey])) {
-            mergedConversation[messagesKey] = mergeStructuredMessages(old[messagesKey], conversation[messagesKey]);
-            mergedAny = true;
-          }
-        }
-        if (!mergedAny) {
-          const messagesKey = 'messages';
-          mergedConversation[messagesKey] = mergeStructuredMessages(old[messagesKey], conversation[messagesKey]);
-        }
-        mergedList[index] = mergedConversation;
-      }
-      return Array.isArray(existing) || Array.isArray(incoming) ? mergedList : { ...existing, ...incoming, conversations: mergedList };
-    }
-    return incoming;
   }
 
   function mergeSearches(primary, additional) {
@@ -1005,18 +469,6 @@
       }
     }
     return merged;
-  }
-
-  // ChatGPT serves a conversation as pages of turns, newest first, with
-  // page_info cursors. This returns the cursor that fetches the next older
-  // page, or null once the opening turn has been reached, so the walk can be
-  // driven and tested without performing any request.
-  function nextConversationPageCursor(data) {
-    const info = data && typeof data === 'object' ? data.page_info : null;
-    if (!info || typeof info !== 'object') return null;
-    if (info.has_previous_page === false) return null;
-    const cursor = info.start_cursor || info.end_cursor;
-    return typeof cursor === 'string' && cursor ? cursor : null;
   }
 
   // How many different turns a list actually contains. Repeated observations
@@ -1734,7 +1186,7 @@
     return null;
   }
 
-  const api = { platformFromLocation, conversationRoute, conversationKeyFor, conversationIdFromPageUrl, conversationIdInPayload, extractConversation, toMarkdown, getCandidateSelector, normalizeClaudeResponse, normalizeChatGPTResponse, chatGPTSearchQueries, chatGPTRenderCitations, normalizeGrokResponse, normalizeGrokShareResponse, grokTurnFromResponse, nextConversationPageCursor, distinctTurnCount, comparisonText, reviveDevalue, decodeScriptStringLiteral, extractChatGPTShareConversation, normalizeStructuredResponse, platformForPayload, resolveExportData, mergeStructuredMessages, mergeStructuredResponses, mergeSearches, mergeExportMessages, mergeExportData, exportMessageKey, shouldContinueScrollWalk, createScrollCollector, findConversationScroller, getFallbackSelector };
+  const api = { platformFromLocation, conversationRoute, extractConversation, toMarkdown, getCandidateSelector, normalizeClaudeResponse, normalizeChatGPTResponse, chatGPTSearchQueries, chatGPTRenderCitations, normalizeGrokResponse, normalizeGrokShareResponse, grokTurnFromResponse, distinctTurnCount, comparisonText, reviveDevalue, decodeScriptStringLiteral, extractChatGPTShareConversation, normalizeStructuredResponse, platformForPayload, resolveExportData, mergeSearches, getFallbackSelector };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ChatExportAdapters = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
