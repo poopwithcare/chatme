@@ -44,4 +44,4 @@ Chat Export's use of information obtained from websites is limited to providing 
 
 ## Contact
 
-For privacy questions, contact: [your contact email]
+For privacy questions, contact: contact@poopwithcare.com
