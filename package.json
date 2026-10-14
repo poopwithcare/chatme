@@ -8,6 +8,7 @@
     "test": "node --test test/adapters.test.js test/collector.test.js test/popup.test.js",
     "test:e2e": "node --test test/e2e.test.js",
     "test:live": "node scripts/live-e2e.js",
+    "debug:collect": "node scripts/debug-collect.js",
     "assets": "node scripts/build-store-assets.js",
     "release": "node scripts/release.js"
   },

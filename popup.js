@@ -60,6 +60,10 @@ async function collectFromTab() {
         if (!collector) throw new Error(t('errorCollectorMissing'));
         try {
           return await collector.collect();
+        } catch (error) {
+          // Keep the page URL with the failure: most "wrong export" reports
+          // come down to which conversation was actually collected.
+          throw new Error(`${error && error.message ? error.message : error} [page=${location.href.split('?')[0]}]`);
         } finally {
           // Keep no conversation data or collector state in the tab after this
           // one action. The next popup action injects a fresh collector.
@@ -70,7 +74,16 @@ async function collectFromTab() {
       }
     });
     if (!execution || !execution.result || !execution.result.markdown) {
-      throw new Error(t('errorNoMarkdown'));
+      // A silent empty result hides the cause; report what came back and
+      // where, so the failure can be diagnosed instead of re-reported blind.
+      let detail = '';
+      try {
+        const shape = execution && 'result' in execution
+          ? (execution.result && typeof execution.result === 'object' ? Object.keys(execution.result).join(',') : typeof execution.result)
+          : 'no-result-entry';
+        detail = ` [got=${shape} tab=${activeTab && activeTab.url ? new URL(activeTab.url).hostname : '?'}]`;
+      } catch (_) {}
+      throw new Error(t('errorNoMarkdown') + detail);
     }
     cachedExport = execution.result;
     return cachedExport;

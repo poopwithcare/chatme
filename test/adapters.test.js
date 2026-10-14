@@ -1049,3 +1049,649 @@ test('ChatGPT share DOM uses bubble and markdown containers without role attribu
   assert.equal(result.messages[1].role, 'assistant');
   assert.equal(result.messages[1].text, 'Shared answer text');
 });
+
+test('ChatGPT sediment image pointer keeps its turn with a labelled placeholder', () => {
+  const response = {
+    title: 'Image chat',
+    mapping: {
+      'm1': { message: { author: { role: 'user' }, content: { content_type: 'multimodal_text', parts: [
+        'What is in this image?',
+        { content_type: 'image_asset_pointer', asset_pointer: 'sediment://file-abc123', width: 1024, height: 768 }
+      ] }, create_time: 1 } },
+      'm2': { message: { author: { role: 'assistant' }, content: { content_type: 'text', parts: ['It shows a diagram.'] }, create_time: 2 } }
+    }
+  };
+  const result = adapters.normalizeChatGPTResponse(response, 'https://chatgpt.com/c/123');
+  assert.equal(result.messages.length, 2);
+  assert.match(result.messages[0].text, /What is in this image\?/);
+  assert.match(result.messages[0].text, /\[image: file-abc123\]/);
+  assert.doesNotMatch(result.messages[0].text, /sediment/);
+});
+
+test('ChatGPT http image pointer exports as a Markdown image with a source', () => {
+  const response = {
+    mapping: {
+      'm1': { message: { author: { role: 'assistant' }, content: { content_type: 'multimodal_text', parts: [
+        'Here is the chart.',
+        { content_type: 'image_asset_pointer', asset_pointer: 'https://files.oaiusercontent.com/chart.png?sig=x' }
+      ] }, create_time: 1 } }
+    }
+  };
+  const result = adapters.normalizeChatGPTResponse(response, 'https://chatgpt.com/c/123');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /!\[.*\]\(https:\/\/files\.oaiusercontent\.com\/chart\.png\?sig=x\)/);
+  assert.equal(result.messages[0].links[0].url, 'https://files.oaiusercontent.com/chart.png?sig=x');
+  assert.equal(result.searches.length, 1);
+});
+
+test('ChatGPT resolved file URLs turn sediment pointers into images', () => {
+  const response = {
+    mapping: {
+      'm1': { message: { author: { role: 'user' }, content: { content_type: 'multimodal_text', parts: [
+        { content_type: 'image_asset_pointer', asset_pointer: 'sediment://file-abc123' }
+      ] }, create_time: 1, metadata: {} } }
+    }
+  };
+  const fileUrls = { 'file-abc123': { url: 'https://files.oaiusercontent.com/file-abc123/photo.png?sig=y', name: 'photo.png' } };
+  const result = adapters.normalizeChatGPTResponse(response, 'https://chatgpt.com/c/123', fileUrls);
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /!\[photo\.png\]\(https:\/\/files\.oaiusercontent\.com\/file-abc123\/photo\.png\?sig=y\)/);
+  assert.equal(result.messages[0].links[0].url, 'https://files.oaiusercontent.com/file-abc123/photo.png?sig=y');
+});
+
+test('chatGPTImageFileIds collects pointer, attachment, and execution image ids', () => {
+  const response = {
+    mapping: {
+      'm1': { message: { author: { role: 'user' }, content: { content_type: 'multimodal_text', parts: [
+        { content_type: 'image_asset_pointer', asset_pointer: 'sediment://file-aaa' }
+      ] }, metadata: { attachments: [{ id: 'file-bbb', name: 'scan.png', mime_type: 'image/png' }] } } },
+      'm2': { message: { author: { role: 'tool' }, content: { content_type: 'execution_output', text: '' },
+        metadata: { aggregate_result: { messages: [{ message_type: 'image', image_url: 'sediment://file-ccc' }] } } } }
+    },
+    messages: [
+      { author: { role: 'user' }, content: { content_type: 'multimodal_text', parts: [
+        { content_type: 'image_asset_pointer', asset_pointer: 'file-service://file-ddd?x=1' }
+      ] } }
+    ]
+  };
+  assert.deepEqual(adapters.chatGPTImageFileIds(response), ['file-aaa', 'file-bbb', 'file-ccc', 'file-ddd']);
+  assert.deepEqual(adapters.chatGPTImageFileIds(null), []);
+});
+
+test('ChatGPT upload attachments and code-execution images export by kind', () => {
+  const response = {
+    mapping: {
+      'm1': { message: { author: { role: 'user' }, content: { content_type: 'text', parts: ['See attached'] },
+        create_time: 1, metadata: { attachments: [
+          { id: 'file-img', name: 'scan.png', mime_type: 'image/png' },
+          { id: 'file-doc', name: 'notes.pdf', mime_type: 'application/pdf' }
+        ] } } },
+      'm2': { message: { author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Ran the code.'] },
+        create_time: 2, metadata: { aggregate_result: { messages: [
+          { message_type: 'image', image_url: 'https://files.oaiusercontent.com/plot.png' }
+        ] } } } }
+    }
+  };
+  const result = adapters.normalizeChatGPTResponse(response, 'https://chatgpt.com/c/123');
+  assert.match(result.messages[0].text, /\[image: scan\.png\]/);
+  assert.match(result.messages[0].text, /\[file: notes\.pdf\]/);
+  assert.match(result.messages[1].text, /!\[generated image 1\]\(https:\/\/files\.oaiusercontent\.com\/plot\.png\)/);
+});
+
+test('Claude image content blocks export as images or labelled placeholders', () => {
+  const response = {
+    chat_messages: [
+      { role: 'user', content: [
+        { type: 'text', text: 'Describe this' },
+        { type: 'image', source: { type: 'url', url: 'https://example.com/garden.png' } }
+      ] },
+      { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBOR' } }] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 2);
+  assert.match(result.messages[0].text, /!\[image\]\(https:\/\/example\.com\/garden\.png\)/);
+  assert.equal(result.messages[0].links[0].url, 'https://example.com/garden.png');
+  assert.match(result.messages[1].text, /\[image: image\/png\]/);
+});
+
+test('Claude files_v2 image uploads export like files entries', () => {
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: '', files_v2: [{ file_kind: 'image', file_name: 'sketch.webp', preview_url: '/api/organizations/o-1/files/f-3/contents' }] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /!\[sketch\.webp\]\(https:\/\/claude\.ai\/api\/organizations\/o-1\/files\/f-3\/contents\)/);
+});
+
+test('Grok uploaded image metadata exports as an assets-host Markdown image', () => {
+  const batch = {
+    responses: [{
+      responseId: 'r1',
+      sender: 'human',
+      message: 'can you calculate the memory? ignore the os stuff',
+      fileAttachmentsMetadata: [{
+        fileMetadataId: '5804b7bb-3584-434a-b029-05acf291a5cd',
+        fileMimeType: 'image/png',
+        fileName: 'image.png',
+        fileUri: 'users/u-1/5804b7bb-3584-434a-b029-05acf291a5cd/content'
+      }]
+    }]
+  };
+  const result = adapters.normalizeStructuredResponse(batch, 'https://grok.com/c/1');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /can you calculate the memory/);
+  assert.match(result.messages[0].text, /!\[image\.png\]\(https:\/\/assets\.grok\.com\/users\/u-1\/5804b7bb-3584-434a-b029-05acf291a5cd\/content\)/);
+});
+
+test('Grok generated images and file cards export with links', () => {
+  const batch = {
+    responses: [{
+      responseId: 'r1',
+      sender: 'assistant',
+      message: 'Here it is.',
+      generatedImageUrls: ['https://assets.grok.com/users/u-1/gen/img1.png'],
+      cardAttachmentsJson: [JSON.stringify({
+        id: 'mLjs9', type: 'render_file', file_name: 'notes.txt', mime_type: 'text/plain',
+        url: 'users/u-1/generated/aaa/notes.txt'
+      })]
+    }]
+  };
+  const result = adapters.normalizeStructuredResponse(batch, 'https://grok.com/c/1');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /!\[generated image 1\]\(https:\/\/assets\.grok\.com\/users\/u-1\/gen\/img1\.png\)/);
+  assert.match(result.messages[0].text, /> File: \[notes\.txt\]\(https:\/\/assets\.grok\.com\/users\/u-1\/generated\/aaa\/notes\.txt\)/);
+  assert.equal(result.messages[0].links.length, 2);
+});
+
+test('DOM extraction keeps content images and skips avatar chrome', () => {
+  const photo = {
+    getAttribute(name) { return name === 'alt' ? 'whiteboard photo' : name === 'src' ? 'https://files.example.com/whiteboard.png' : ''; },
+    alt: 'whiteboard photo',
+    src: 'https://files.example.com/whiteboard.png',
+    closest() { return null; },
+    parentElement: null
+  };
+  const avatar = {
+    getAttribute(name) { return name === 'alt' ? 'User avatar' : ''; },
+    alt: 'User avatar',
+    src: 'https://example.com/avatar.png',
+    width: 24,
+    height: 24,
+    closest() { return null; },
+    parentElement: null
+  };
+  const userDiv = {
+    getAttribute(name) { return name === 'data-message-author-role' ? 'user' : ''; },
+    hasAttribute() { return false; },
+    querySelector() { return null; },
+    querySelectorAll(sel) {
+      if (String(sel).includes('a[href]')) return [];
+      if (String(sel).includes('img')) return [photo, avatar];
+      return [];
+    },
+    closest() { return null; },
+    parentElement: null,
+    innerText: 'Look at this board',
+    textContent: 'Look at this board'
+  };
+  const doc = {
+    querySelectorAll(sel) {
+      if (String(sel).includes('data-message-author-role')) return [userDiv];
+      return [];
+    },
+    querySelector() { return null; }
+  };
+  const result = adapters.extractConversation(doc, 'chatgpt', 'https://chatgpt.com/c/test');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /Look at this board/);
+  assert.match(result.messages[0].text, /!\[whiteboard photo\]\(https:\/\/files\.example\.com\/whiteboard\.png\)/);
+  assert.doesNotMatch(result.messages[0].text, /avatar/);
+});
+
+test('resolveExportData threads resolved ChatGPT file URLs into the export', () => {
+  const payload = {
+    mapping: {
+      'm1': { message: { author: { role: 'user' }, content: { content_type: 'multimodal_text', parts: [
+        { content_type: 'image_asset_pointer', asset_pointer: 'sediment://file-abc123' }
+      ] } } }
+    }
+  };
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload, fileUrls: { 'file-abc123': { url: 'https://files.oaiusercontent.com/x.png', name: 'x.png' } } },
+    doc: { querySelectorAll() { return []; }, querySelector() { return null; } },
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/123'
+  });
+  assert.equal(resolved.source, 'structured');
+  assert.match(resolved.data.messages[0].text, /!\[x\.png\]\(https:\/\/files\.oaiusercontent\.com\/x\.png\)/);
+});
+
+test('DOM extraction skips turns from a hidden previous conversation', () => {
+  // After client-side navigation to a new chat the old thread can stay
+  // mounted but hidden; its turns must not leak into the export.
+  const hidden = makeNode('div', { 'data-message-author-role': 'user', 'aria-hidden': 'true' }, 'Old chat question');
+  const visible = makeNode('div', { 'data-message-author-role': 'user' }, 'New chat question');
+  const result = adapters.extractConversation(makeDoc([hidden, visible]), 'chatgpt', 'https://chatgpt.com/c/new');
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].text, 'New chat question');
+});
+
+test('ChatGPT rendered chrome is not exported as turns', () => {
+  const disclaimer = makeNode('div', { 'data-message-author-role': 'assistant' }, 'ChatGPT can make mistakes. Check important info.');
+  const stamp = makeNode('div', { 'data-message-author-role': 'assistant' }, 'Today 1:08 PM');
+  const real = makeNode('div', { 'data-message-author-role': 'assistant' }, 'Test received.\nChatGPT can make mistakes. Check important info.');
+  const result = adapters.extractConversation(makeDoc([disclaimer, stamp, real]), 'chatgpt', 'https://chatgpt.com/c/new');
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].text, 'Test received.');
+  assert.doesNotMatch(adapters.toMarkdown(result), /make mistakes|Today 1:08 PM/);
+});
+
+test('a foreign DOM never displaces its structured conversation', () => {
+  // New chat fetched fine, but the DOM still shows another conversation:
+  // zero shared turns means the DOM is foreign and must be ignored.
+  const payload = { mapping: {
+    m1: { message: { author: { role: 'user' }, content: { parts: ['new chat question'] } }, parent: null },
+    m2: { message: { author: { role: 'assistant' }, content: { parts: ['new chat answer'] } }, parent: 'm1' }
+  }, current_node: 'm2' };
+  const foreign = {
+    platform: 'chatgpt', platformName: 'ChatGPT', title: 'x', url: 'https://chatgpt.com/c/new',
+    capturedAt: '2026-10-14T00:00:00.000Z',
+    messages: [
+      { role: 'user', text: 'old peugeot question', links: [] },
+      { role: 'assistant', text: 'old answer', links: [] },
+      { role: 'user', text: 'old email question', links: [] },
+      { role: 'assistant', text: 'old answer two', links: [] }
+    ],
+    searches: []
+  };
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: { querySelectorAll() { return []; }, querySelector() { return null; } },
+    domData: foreign,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/new'
+  });
+  assert.equal(resolved.source, 'structured');
+  assert.equal(resolved.data.messages.length, 2);
+  assert.doesNotMatch(adapters.toMarkdown(resolved.data), /peugeot|old email/);
+});
+
+test('leading turns from another conversation are not prepended', () => {
+  // Structured wins on length, but the DOM head belongs to a previous chat:
+  // it does not continue into the picked opener, so nothing is prepended.
+  const node = (id, parent, role, text) => ({
+    id, parent, message: { id, author: { role }, content: { content_type: 'text', parts: [text] } }
+  });
+  const payload = { mapping: {
+    a: node('a', undefined, 'user', 'current question'),
+    b: node('b', 'a', 'assistant', 'current answer'),
+    c: node('c', 'b', 'user', 'current follow-up'),
+    d: node('d', 'c', 'assistant', 'current follow-up answer')
+  }, current_node: 'd' };
+  const mixed = {
+    platform: 'chatgpt', platformName: 'ChatGPT', title: 'x', url: 'https://chatgpt.com/c/new',
+    capturedAt: '2026-10-14T00:00:00.000Z',
+    messages: [
+      { role: 'user', text: 'previous chat question', links: [] },
+      { role: 'user', text: 'current question', links: [] },
+      { role: 'assistant', text: 'current answer', links: [] }
+    ],
+    searches: []
+  };
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: { querySelectorAll() { return []; }, querySelector() { return null; } },
+    domData: mixed,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/new'
+  });
+  assert.equal(resolved.source, 'structured');
+  assert.equal(resolved.data.messages.length, 4);
+  assert.doesNotMatch(adapters.toMarkdown(resolved.data), /previous chat question/);
+});
+
+test('DOM extraction prefers main content over side-rail matches', () => {
+  const rail = makeNode('div', { 'data-message-author-role': 'user' }, 'Rail snippet');
+  rail.closest = (sel) => String(sel).includes('aside') ? {} : null;
+  const thread = makeNode('div', { 'data-message-author-role': 'user' }, 'Thread question');
+  const result = adapters.extractConversation(makeDoc([rail, thread]), 'chatgpt', 'https://chatgpt.com/c/new');
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].text, 'Thread question');
+});
+
+test('a complete ChatGPT payload ignores visible stale turns from another chat', () => {
+  // The flat payload is the whole conversation (no adjacent pages), so a
+  // previous chat's bubble still mounted in the DOM must not leak in, even
+  // when it is fully visible and would outscore the payload by count.
+  const payload = {
+    title: 'Find cat photo',
+    conversation_id: '6acee45a',
+    messages: [
+      { id: 'u1', author: { role: 'user' }, content: { content_type: 'text', parts: ['find a photo of a cat'] }, create_time: 1791943773.556 },
+      { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['cat photo answer'] }, create_time: 1791943776.59 }
+    ],
+    page_info: { has_previous_page: false, has_next_page: false }
+  };
+  const stale = makeDoc([
+    makeNode('div', { 'data-message-author-role': 'user' }, 'find a photo of a cat'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'cat photo answer'),
+    makeNode('div', { 'data-message-author-role': 'user' }, 'can you find some images of a peugot 309 on line')
+  ]);
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: stale,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/6acee45a-1e2c-83ec-b704-2b4b0709da7a'
+  });
+  assert.equal(resolved.source, 'structured');
+  assert.equal(resolved.data.messages.length, 2);
+  assert.doesNotMatch(adapters.toMarkdown(resolved.data), /peugot/);
+});
+
+test('an incomplete ChatGPT payload still yields to a fuller visible conversation', () => {
+  // More pages exist beyond this one, so the DOM may hold turns the payload
+  // lacks and the count comparison still decides.
+  const payload = {
+    messages: [
+      { id: 'u2', author: { role: 'user' }, content: { content_type: 'text', parts: ['Newer question'] }, create_time: 2 },
+      { id: 'a2', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Newer answer'] }, create_time: 3 }
+    ],
+    page_info: { has_previous_page: false, has_next_page: true }
+  };
+  const fuller = makeDoc([
+    makeNode('div', { 'data-message-author-role': 'user' }, 'Older question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'Older answer'),
+    makeNode('div', { 'data-message-author-role': 'user' }, 'Newer question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'Newer answer')
+  ]);
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: fuller,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/abc'
+  });
+  assert.equal(resolved.source, 'dom');
+  assert.equal(resolved.data.messages.length, 4);
+  assert.equal(resolved.data.messages[0].text, 'Older question');
+});
+
+test('a complete ChatGPT mapping ignores a foreign DOM', () => {
+  const node = (id, parent, role, text) => ({
+    id, parent, message: { id, author: { role }, content: { content_type: 'text', parts: [text] } }
+  });
+  const payload = { mapping: {
+    a: node('a', undefined, 'user', 'current question'),
+    b: node('b', 'a', 'assistant', 'current answer')
+  }, current_node: 'b' };
+  const foreign = makeDoc([
+    makeNode('div', { 'data-message-author-role': 'user' }, 'previous chat question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'previous chat answer'),
+    makeNode('div', { 'data-message-author-role': 'user' }, 'current question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'current answer')
+  ]);
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: foreign,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/new'
+  });
+  assert.equal(resolved.source, 'structured');
+  assert.equal(resolved.data.messages.length, 2);
+  assert.doesNotMatch(adapters.toMarkdown(resolved.data), /previous chat/);
+});
+
+test('a truncated ChatGPT mapping still compares against the DOM', () => {
+  // The chain stops at a parent the payload does not include, so the payload
+  // may be a partial tail and the fuller DOM still wins.
+  const node = (id, parent, role, text) => ({
+    id, parent, message: { id, author: { role }, content: { content_type: 'text', parts: [text] } }
+  });
+  const payload = { mapping: {
+    b: node('b', 'missing-parent', 'user', 'Newer question'),
+    c: node('c', 'b', 'assistant', 'Newer answer')
+  }, current_node: 'c' };
+  const fuller = makeDoc([
+    makeNode('div', { 'data-message-author-role': 'user' }, 'Older question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'Older answer'),
+    makeNode('div', { 'data-message-author-role': 'user' }, 'Newer question'),
+    makeNode('div', { 'data-message-author-role': 'assistant' }, 'Newer answer')
+  ]);
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'chatgpt', data: payload },
+    doc: fuller,
+    platform: 'chatgpt',
+    pageUrl: 'https://chatgpt.com/c/abc'
+  });
+  assert.equal(resolved.source, 'dom');
+  assert.equal(resolved.data.messages.length, 4);
+});
+
+test('ChatGPT tool-addressed turns are skipped but sandbox code is kept fenced', () => {
+  const msg = (role, recipient, content) => ({ author: { role }, recipient, content, create_time: 1 });
+  const list = [
+    msg('user', 'all', { content_type: 'text', parts: ['Run it'] }),
+    msg('assistant', 't2uay3k.sj1i4kz', { content_type: 'code', language: 'json', text: '{"size":"1024x1024","prompt":"a cat"}' }),
+    msg('assistant', 'container.exec', { content_type: 'code', language: 'unknown', text: 'ls -la /mnt/data' })
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123');
+  assert.equal(flat.messages.length, 2);
+  assert.doesNotMatch(flat.messages.map((m) => m.text).join('\n'), /1024x1024/);
+  assert.match(flat.messages[1].text, /```\nls -la \/mnt\/data\n```/);
+});
+
+test('ChatGPT code content is fenced with its language', () => {
+  const list = [
+    { author: { role: 'assistant' }, recipient: 'container.exec', content: { content_type: 'code', language: 'python', text: 'print("hi")' }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123');
+  assert.match(flat.messages[0].text, /```python\nprint\("hi"\)\n```/);
+});
+
+test('ChatGPT execution output and generated images ride into the next answer', () => {
+  const fileUrls = { 'file-gen1': { url: 'https://files.example.com/gen1.png', name: 'Design System.png' } };
+  const list = [
+    { id: 'u1', author: { role: 'user' }, content: { content_type: 'text', parts: ['Make it'] }, create_time: 1 },
+    { id: 't1', author: { role: 'tool' }, content: { content_type: 'execution_output', text: 'total 4\n-rw-r--r-- 1 root root 20K out.png' }, create_time: 2 },
+    { id: 't2', author: { role: 'tool' }, content: { content_type: 'multimodal_text', parts: [
+      { content_type: 'image_asset_pointer', asset_pointer: 'sediment://file-gen1' }
+    ] }, metadata: { image_gen_title: 'Design System' }, create_time: 3 },
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Done.'] }, create_time: 4 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.equal(flat.messages.length, 2);
+  const answer = flat.messages[1].text;
+  assert.match(answer, /^Done\./);
+  assert.match(answer, /!\[Design System\]\(https:\/\/files\.example\.com\/gen1\.png\)/);
+  assert.match(answer, /<details><summary>Terminal output<\/summary>/);
+  assert.match(answer, /total 4/);
+});
+
+test('ChatGPT long execution output is capped', () => {
+  const big = `x\n`.repeat(2000);
+  const list = [
+    { id: 't1', author: { role: 'tool' }, content: { content_type: 'execution_output', text: big }, create_time: 1 },
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Done.'] }, create_time: 2 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123');
+  assert.match(flat.messages[0].text, /output truncated/);
+  assert.ok(flat.messages[0].text.length < big.length);
+});
+
+test('ChatGPT sandbox file links resolve to download URLs', () => {
+  const fileUrls = { sandbox: { 'card.html': { url: 'https://dl.example.com/card.html?sig=z', name: 'card.html' } } };
+  const list = [
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['See [Open the demo](sandbox:/mnt/data/card.html) please.'] }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.match(flat.messages[0].text, /\[Open the demo\]\(https:\/\/dl\.example\.com\/card\.html\?sig=z\)/);
+  assert.doesNotMatch(flat.messages[0].text, /sandbox:/);
+  assert.equal(flat.messages[0].links[0].url, 'https://dl.example.com/card.html?sig=z');
+});
+
+test('ChatGPT unresolvable sandbox links stay untouched', () => {
+  const list = [
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['See [Open the demo](sandbox:/mnt/data/card.html).'] }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123');
+  assert.match(flat.messages[0].text, /\(sandbox:\/mnt\/data\/card\.html\)/);
+});
+
+test('ChatGPT upload attachments resolve by file name from the listing', () => {
+  const fileUrls = { sandbox: { 'notes.pdf': { url: 'https://dl.example.com/notes.pdf?sig=q', name: 'notes.pdf' } } };
+  const list = [
+    { id: 'u1', author: { role: 'user' }, content: { content_type: 'text', parts: ['See attached'] }, create_time: 1,
+      metadata: { attachments: [{ id: 'att-1', name: 'notes.pdf', mime_type: 'application/pdf' }] } }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.match(flat.messages[0].text, /> File: \[notes\.pdf\]\(https:\/\/dl\.example\.com\/notes\.pdf\?sig=q\)/);
+  assert.equal(flat.messages[0].links[0].url, 'https://dl.example.com/notes.pdf?sig=q');
+});
+
+test('ChatGPT mapping branch gates recipients and rewrites sandbox links', () => {
+  const node = (id, parent, role, recipient, content) => ({ id, parent, message: { id, author: { role }, recipient, content } });
+  const fileUrls = { sandbox: { 'card.html': { url: 'https://dl.example.com/card.html', name: 'card.html' } } };
+  const payload = { mapping: {
+    a: node('a', undefined, 'user', 'all', { content_type: 'text', parts: ['Build it'] }),
+    b: node('b', 'a', 'assistant', 't2uay3k.sj1i4kz', { content_type: 'code', language: 'json', text: '{"prompt":"x"}' }),
+    c: node('c', 'b', 'assistant', 'all', { content_type: 'text', parts: ['Get [it](sandbox:/mnt/data/card.html).'] })
+  }, current_node: 'c' };
+  const result = adapters.normalizeChatGPTResponse(payload, 'https://chatgpt.com/c/123', fileUrls);
+  assert.equal(result.messages.length, 2);
+  assert.doesNotMatch(result.messages.map((m) => m.text).join('\n'), /"prompt"/);
+  assert.match(result.messages[1].text, /\[it\]\(https:\/\/dl\.example\.com\/card\.html\)/);
+});
+
+test('ChatGPT sandbox links embed fetched file text', () => {
+  const fileUrls = { sandbox: {
+    'card.html': { url: 'https://dl.example.com/card.html', name: 'card.html', content: '<h1>Hi</h1>', truncated: false, total: 12 }
+  } };
+  const list = [
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Open [the demo](sandbox:/mnt/data/card.html).'] }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.match(flat.messages[0].text, /\[the demo\]\(https:\/\/dl\.example\.com\/card\.html\)/);
+  assert.match(flat.messages[0].text, /<details><summary>card\.html<\/summary>/);
+  assert.match(flat.messages[0].text, /```html\n<h1>Hi<\/h1>\n```/);
+});
+
+test('ChatGPT embedded files note truncation and dedupe repeats', () => {
+  const fileUrls = { sandbox: {
+    'big.css': { url: 'https://dl.example.com/big.css', name: 'big.css', content: 'a{color:red}', truncated: true, total: 99999 }
+  } };
+  const list = [
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['See [a](sandbox:/mnt/data/big.css) and [b](sandbox:/mnt/data/big.css).'] }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.equal((flat.messages[0].text.match(/<details><summary>big\.css \(truncated\)/g) || []).length, 1);
+  assert.match(flat.messages[0].text, /showing 12 of 99999 chars/);
+});
+
+test('ChatGPT links without fetched text embed nothing', () => {
+  const fileUrls = { sandbox: { 'card.html': { url: 'https://dl.example.com/card.html', name: 'card.html' } } };
+  const list = [
+    { id: 'a1', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['Open [the demo](sandbox:/mnt/data/card.html).'] }, create_time: 1 }
+  ];
+  const flat = adapters.normalizeChatGPTResponse({ messages: list }, 'https://chatgpt.com/c/123', fileUrls);
+  assert.doesNotMatch(flat.messages[0].text, /<details>/);
+});
+
+test('Claude upload attachments export with embedded text', () => {
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: 'Reorganize this', attachments: [
+        { id: 'a-1', file_name: '', file_size: 48, file_type: 'txt', extracted_content: 'body { color: red; }' }
+      ] },
+      { sender: 'assistant', text: 'Done.', attachments: [] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 2);
+  assert.match(result.messages[0].text, /Reorganize this/);
+  assert.match(result.messages[0].text, /\[file: file\.txt\]/);
+  assert.match(result.messages[0].text, /<details><summary>file\.txt<\/summary>/);
+  assert.match(result.messages[0].text, /```txt\nbody \{ color: red; \}\n```/);
+});
+
+test('Claude attachment-only turn survives with truncation noted', () => {
+  const big = `${'x'},\n`.repeat(12000);
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: '', attachments: [
+        { id: 'a-2', file_name: 'data.csv', file_size: big.length, file_type: 'csv', extracted_content: big }
+      ] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /<details><summary>data\.csv \(truncated\)<\/summary>/);
+  assert.match(result.messages[0].text, /showing \d+ of \d+ chars/);
+});
+
+test('Claude image attachments stay placeholders without embedding', () => {
+  const response = {
+    chat_messages: [
+      { sender: 'human', text: '', attachments: [
+        { id: 'a-3', file_name: 'shot.png', file_size: 99, file_type: 'png', extracted_content: 'not text' }
+      ] }
+    ]
+  };
+  const result = adapters.normalizeClaudeResponse(response, 'https://claude.ai/chat/abc');
+  assert.equal(result.messages.length, 1);
+  assert.match(result.messages[0].text, /\[image: shot\.png\]/);
+  assert.doesNotMatch(result.messages[0].text, /<details>/);
+});
+
+test('grokEmbeddableFiles lists text files once and skips images', () => {
+  const response = {
+    fileAttachmentsMetadata: [
+      { fileName: 'notes.txt', fileMimeType: 'text/plain', fileUri: 'users/u-1/aaa/content' },
+      { fileName: 'photo.png', fileMimeType: 'image/png', fileUri: 'users/u-1/bbb/content' }
+    ],
+    fileAttachmentAssetMetadata: [
+      { assetId: 'aaa', name: 'notes.txt', mimeType: 'text/plain', key: 'users/u-1/aaa/content' }
+    ],
+    cardAttachmentsJson: [JSON.stringify({ file_name: 'data.csv', mime_type: 'text/csv', url: 'users/u-1/gen/data.csv' })]
+  };
+  const files = adapters.grokEmbeddableFiles(response);
+  assert.deepEqual(files.map((f) => f.url), [
+    'https://assets.grok.com/users/u-1/aaa/content',
+    'https://assets.grok.com/users/u-1/gen/data.csv'
+  ]);
+});
+
+test('Grok turns embed fetched file text after the file line', () => {
+  const batch = {
+    responses: [{
+      responseId: 'r1',
+      sender: 'assistant',
+      message: 'Wrote it.',
+      cardAttachmentsJson: [JSON.stringify({
+        id: 'c1', type: 'render_file', file_name: 'notes.txt', mime_type: 'text/plain',
+        url: 'users/u-1/generated/aaa/notes.txt'
+      })]
+    }]
+  };
+  const embeddedFiles = {
+    'https://assets.grok.com/users/u-1/generated/aaa/notes.txt': { content: 'hello file', truncated: false, total: 10 }
+  };
+  const result = adapters.normalizeStructuredResponse(batch, 'https://grok.com/c/1', null, embeddedFiles);
+  assert.match(result.messages[0].text, /> File: \[notes\.txt\]\(https:\/\/assets\.grok\.com\/users\/u-1\/generated\/aaa\/notes\.txt\)/);
+  assert.match(result.messages[0].text, /<details><summary>notes\.txt<\/summary>/);
+  assert.match(result.messages[0].text, /```txt\nhello file\n```/);
+});
+
+test('resolveExportData threads embedded Grok files into the export', () => {
+  const batch = { responses: [{ responseId: 'r1', sender: 'human', message: 'see attached',
+    fileAttachmentsMetadata: [{ fileName: 'a.txt', fileMimeType: 'text/plain', fileUri: 'users/u-1/a/content' }] }] };
+  const resolved = adapters.resolveExportData({
+    structured: { platform: 'grok', data: batch,
+      embeddedFiles: { 'https://assets.grok.com/users/u-1/a/content': { content: 'file body', truncated: false, total: 9 } } },
+    doc: { querySelectorAll() { return []; }, querySelector() { return null; } },
+    platform: 'grok',
+    pageUrl: 'https://grok.com/c/1'
+  });
+  assert.match(adapters.toMarkdown(resolved.data), /<details><summary>a\.txt<\/summary>/);
+});

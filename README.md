@@ -1,6 +1,6 @@
 # Chat Export
 
-A local-first Chrome Manifest V3 extension for exporting Claude, ChatGPT, and Grok conversations to Markdown.
+A local-first Chrome Manifest V3 extension for exporting Claude, ChatGPT, and Grok conversations to Markdown, including attached and generated images. Code-interpreter and sandbox files resolve to download URLs with text files embedded collapsibly, executed code exports fenced, and terminal output rides along collapsed.
 
 ## Install
 
@@ -21,6 +21,13 @@ Only after Copy or Download is clicked does the extension inject a short-lived i
 npm test
 npm run test:e2e
 npm run test:live
+```
+
+Debug a real conversation (uses a throwaway copy of your local signed-in
+profile; prints per-request timings, resolve source, and full error stacks):
+
+```sh
+npm run debug:collect -- https://chatgpt.com/c/<id> [--out /tmp/export.md]
 ```
 
 Unit tests cover payload normalization, one-shot requests, popup actions, and malformed/unavailable responses. Extension E2E tests verify the loaded MV3 extension adds no page scripts while idle. The live check uses local authenticated profiles and exercises the one-shot collector against the sites.
